@@ -48,11 +48,22 @@ void rhs_define( vector_double rhs, level_struct *l, struct Thread *threading ) 
   } else if ( g.rhs == 2 ) {
     // this would yield different results if we threaded it, so we don't
     START_LOCKED_MASTER(threading)
-    vector_double_define_random( rhs, 0, l->inner_vector_size, l );
+    if ( g.if_rademacher==1 )
+      vector_double_define_random_rademacher( rhs, 0, l->inner_vector_size, l );
+    else
+      vector_double_define_random( rhs, 0, l->inner_vector_size, l );
     END_LOCKED_MASTER(threading)
     START_MASTER(threading)
     if ( g.print > 0 ) printf0("rhs = random\n");
     END_MASTER(threading)
+  //} else if ( g.rhs == 4 ) {
+  //  // this would yield different results if we threaded it, so we don't
+  //  START_LOCKED_MASTER(threading)
+  //  vector_double_define_random_rademacher( rhs, 0, l->inner_vector_size, l );
+  //  END_LOCKED_MASTER(threading)
+  //  START_MASTER(threading)
+  //  if ( g.print > 0 ) printf0("rhs = random\n");
+  //  END_MASTER(threading)
   } else if ( g.rhs == 3 ) {
     vector_double_define( rhs, 0, start, end, l );
   } else {
@@ -145,3 +156,44 @@ void solve_driver( level_struct *l, struct Thread *threading ) {
   END_LOCKED_MASTER(threading)
 }
 
+void hutchinson_driver( level_struct *l, struct Thread *threading ) {
+  
+  vector_double solution = NULL, source = NULL;
+
+  int i,nr_ests=10;
+  complex_double trace=0.0;
+  
+  START_MASTER(threading)
+  MALLOC( solution, complex_double, l->inner_vector_size );
+  MALLOC( source, complex_double, l->inner_vector_size );
+  // use threading->workspace to distribute pointer to newly allocated memory to all threads
+  ((vector_double *)threading->workspace)[0] = solution;
+  ((vector_double *)threading->workspace)[1] = source;
+  END_MASTER(threading)
+  SYNC_MASTER_TO_ALL(threading)
+
+  solution = ((vector_double *)threading->workspace)[0];
+  source   = ((vector_double *)threading->workspace)[1];
+
+  for( i=0; i<nr_ests; i++ ) {
+    g.if_rademacher = 1;
+    rhs_define( source, l, threading );
+    g.if_rademacher = 0;
+
+    solve( solution, source, l, threading );
+
+    // -- trace += source' * solution
+    gmres_double_struct* p = &(g.p);
+    trace += global_inner_product_double( source, solution, p->v_start, p->v_end, l, threading );
+  }
+  trace /= i;
+
+  START_MASTER(threading)
+  printf0( "trace result = %f+i%f\n",CSPLIT(trace) );
+  END_MASTER(threading)
+
+  START_LOCKED_MASTER(threading)
+  FREE( solution, complex_double, l->inner_vector_size );
+  FREE( source, complex_double, l->inner_vector_size );
+  END_LOCKED_MASTER(threading)
+}

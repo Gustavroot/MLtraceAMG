@@ -98,6 +98,8 @@ int main( int argc, char **argv ) {
   
 #pragma omp parallel num_threads(g.num_openmp_processes)
   {
+    g.if_rademacher=0;
+
     struct Thread threading;
     setup_threading(&threading, commonthreaddata, &l);
     setup_no_threading(no_threading, &l);
@@ -108,7 +110,8 @@ int main( int argc, char **argv ) {
     // iterative phase
     method_update( l.setup_iter, &l, &threading );
     
-    solve_driver( &l, &threading );
+    //solve_driver( &l, &threading );
+    hutchinson_driver( &l, &threading );
   }
   
   finalize_common_thread_data(commonthreaddata);
