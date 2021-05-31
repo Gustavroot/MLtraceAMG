@@ -58,6 +58,32 @@ void vector_PRECISION_define_random( vector_PRECISION phi, int start, int end, l
 // TODO : make this a proper assignment of a Rademacher vector
 void vector_PRECISION_define_random_rademacher( vector_PRECISION phi, int start, int end, level_struct *l ) {
 
-  vector_PRECISION_define_random( phi, start, end, l );
+  //vector_PRECISION_define_random( phi, start, end, l );
+  
+  int thread = omp_get_thread_num();
+  if(thread == 0 && start != end)
+  PROF_PRECISION_START( _SET );
+  if ( phi != NULL ) {
+    int i;
+    for ( i=start; i<end; i++ )
+      if(rand()<RAND_MAX/2) phi[i]=  (PRECISION) (-1);
+      else phi[i]= (PRECISION)(1);
+  } else {
+    error0("Error in \"vector_PRECISION_define_random\": pointer is null\n");
+  }
+  if(thread == 0 && start != end)
+  PROF_PRECISION_STOP( _SET, 1 );
   
 }
+
+
+
+
+
+
+
+
+
+
+
+

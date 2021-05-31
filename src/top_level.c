@@ -160,7 +160,7 @@ void hutchinson_driver( level_struct *l, struct Thread *threading ) {
   
   vector_double solution = NULL, source = NULL;
 
-  int i,nr_ests=10;
+  int i,nr_ests=10000;
   complex_double trace=0.0;
   
   START_MASTER(threading)
@@ -189,7 +189,7 @@ void hutchinson_driver( level_struct *l, struct Thread *threading ) {
   trace /= i;
 
   START_MASTER(threading)
-  printf0( "trace result = %f+i%f\n",CSPLIT(trace) );
+  printf0( "trace result = %f+i%f  for %d estimates \n ",CSPLIT(trace), i );
   END_MASTER(threading)
 
   START_LOCKED_MASTER(threading)
