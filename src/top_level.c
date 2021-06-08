@@ -160,7 +160,7 @@ void hutchinson_driver( level_struct *l, struct Thread *threading ) {
   
   vector_double solution = NULL, source = NULL;
 
-  int i,nr_ests=10000;
+  int i,nr_ests=100000;
   complex_double trace=0.0;
   
   START_MASTER(threading)
@@ -185,6 +185,11 @@ void hutchinson_driver( level_struct *l, struct Thread *threading ) {
     // -- trace += source' * solution
     gmres_double_struct* p = &(g.p);
     trace += global_inner_product_double( source, solution, p->v_start, p->v_end, l, threading );
+  START_MASTER(threading)
+  printf0( "WE HAVE DONE-----------------------  %d estimates \n ", i );
+  END_MASTER(threading)
+
+  
   }
   trace /= i;
 
