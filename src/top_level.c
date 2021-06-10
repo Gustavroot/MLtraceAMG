@@ -160,9 +160,16 @@ void hutchinson_driver( level_struct *l, struct Thread *threading ) {
   
   vector_double solution = NULL, source = NULL;
 
-  int i,nr_ests=100000;
+  int i,j, nr_ests=100000;
+  int nr_rough_ests=10;
+  double trace_tol = 1e-4;
   complex_double trace=0.0;
-  
+  complex_double rough_trace=0.0;
+  complex_double aux=0.0;
+  complex_double estimate[nr_ests]; 
+  complex_double variance = 0.0;
+  complex_double RMSD = 0.0;
+
   START_MASTER(threading)
   MALLOC( solution, complex_double, l->inner_vector_size );
   MALLOC( source, complex_double, l->inner_vector_size );
@@ -175,26 +182,52 @@ void hutchinson_driver( level_struct *l, struct Thread *threading ) {
   solution = ((vector_double *)threading->workspace)[0];
   source   = ((vector_double *)threading->workspace)[1];
 
-  for( i=0; i<nr_ests; i++ ) {
-    g.if_rademacher = 1;
+  for( i=0; i<nr_rough_ests; i++ ) {
+    g.if_rademacher = 1; //Compute random vector
     rhs_define( source, l, threading );
     g.if_rademacher = 0;
 
-    solve( solution, source, l, threading );
+    solve( solution, source, l, threading ); //get A⁻¹x
 
-    // -- trace += source' * solution
     gmres_double_struct* p = &(g.p);
-    trace += global_inner_product_double( source, solution, p->v_start, p->v_end, l, threading );
-  START_MASTER(threading)
-  printf0( "WE HAVE DONE-----------------------  %d estimates \n ", i );
-  END_MASTER(threading)
+    estimate[i] = global_inner_product_double( source, solution, p->v_start, p->v_end, l, threading ); //compute x'A⁻¹x
 
-  
+    aux += estimate[i]; 	 rough_trace = aux/ (i+1); //average the estimates
+
   }
-  trace /= i;
+    START_MASTER(threading)
+	    printf( "Rough Trace: %f + i%f \n ", CSPLIT(rough_trace)  );
+    END_MASTER(threading)
+
+  aux=0.0; 
+  for( i=0; i<nr_ests; i++ ) {
+    g.if_rademacher = 1; //Compute random vector
+    rhs_define( source, l, threading );
+    g.if_rademacher = 0;
+
+    solve( solution, source, l, threading ); //get A⁻¹x
+
+    gmres_double_struct* p = &(g.p);
+    estimate[i] = global_inner_product_double( source, solution, p->v_start, p->v_end, l, threading ); //compute x'A⁻¹x
+
+    aux += estimate[i]; 	 trace = aux/ (i+1); //average the estimates
+
+    for (j=0; j<i; j++) // compute the variance
+        variance += (  estimate[j]- trace)*conj(  estimate[j]- trace); 
+    variance /= (j+1);
+
+    RMSD = sqrt(variance/(j+1)); //RMSD= sqrt(var+ bias²)
+
+    START_MASTER(threading)
+	    printf( "%d \t var %f \t RMSD %f \t %f + i%f \n ", i, creal(variance), creal(RMSD), CSPLIT(trace)  );
+    END_MASTER(threading)
+    variance=0.0;
+    if(i !=0 && cabs(RMSD)< cabs(rough_trace)*trace_tol) break;
+  }
+  
 
   START_MASTER(threading)
-  printf0( "trace result = %f+i%f  for %d estimates \n ",CSPLIT(trace), i );
+  printf( "trace result = %f+i%f  for %d estimates \n ",CSPLIT(trace), i );
   END_MASTER(threading)
 
   START_LOCKED_MASTER(threading)
