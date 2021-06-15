@@ -160,15 +160,15 @@ void hutchinson_driver( level_struct *l, struct Thread *threading ) {
   
   vector_double solution = NULL, source = NULL;
 
-  int i,j, nr_ests=100000;
+  int i,j, nr_ests=10000;
   int nr_rough_ests=10;
-  double trace_tol = 1e-4;
+  double trace_tol = 1e-3;
   complex_double trace=0.0;
   complex_double rough_trace=0.0;
   complex_double aux=0.0;
   complex_double estimate[nr_ests]; 
-  complex_double variance = 0.0;
-  complex_double RMSD = 0.0;
+  double variance = 0.0;
+  double RMSD = 0.0;
 
   START_MASTER(threading)
   MALLOC( solution, complex_double, l->inner_vector_size );
@@ -219,10 +219,10 @@ void hutchinson_driver( level_struct *l, struct Thread *threading ) {
     RMSD = sqrt(variance/(j+1)); //RMSD= sqrt(var+ bias²)
 
     START_MASTER(threading)
-	    printf( "%d \t var %f \t RMSD %f \t %f + i%f \n ", i, creal(variance), creal(RMSD), CSPLIT(trace)  );
+	    printf( "%d \t var %f \t RMSD %f \t %f + i%f \n ", i, variance, RMSD, CSPLIT(trace)  );
     END_MASTER(threading)
     variance=0.0;
-    if(i !=0 && cabs(RMSD)< cabs(rough_trace)*trace_tol) break;
+    if(i !=0 && RMSD< cabs(rough_trace)*trace_tol) break;
   }
   
 
@@ -235,3 +235,123 @@ void hutchinson_driver( level_struct *l, struct Thread *threading ) {
   FREE( source, complex_double, l->inner_vector_size );
   END_LOCKED_MASTER(threading)
 }
+
+
+
+void block_hutchinson_driver( level_struct *l, struct Thread *threading ) {
+  
+  vector_double solution = NULL, source = NULL, buffer =NULL;
+  vector_double* X = NULL;
+  int block_size=12;
+
+  /*int i,j, nr_ests=100000;
+  int nr_rough_ests=10;
+  double trace_tol = 1e-4;
+  complex_double trace=0.0;
+  complex_double rough_trace=0.0;
+  complex_double aux=0.0;
+  complex_double estimate[nr_ests]; 
+  complex_double variance = 0.0;
+  complex_double RMSD = 0.0;
+  */
+
+
+  START_MASTER(threading)
+  MALLOC( solution, complex_double, l->inner_vector_size );
+  MALLOC( source, complex_double, l->inner_vector_size );
+  MALLOC( buffer, complex_double, block_size*block_size );
+  // use threading->workspace to distribute pointer to newly allocated memory to all threads
+  ((vector_double *)threading->workspace)[0] = solution;
+  ((vector_double *)threading->workspace)[1] = source;
+  ((vector_double *)threading->workspace)[2] = buffer;
+  END_MASTER(threading)
+  SYNC_MASTER_TO_ALL(threading)
+
+  solution = ((vector_double *)threading->workspace)[0];
+  source   = ((vector_double *)threading->workspace)[1];
+  buffer   = ((vector_double *)threading->workspace)[2];
+
+  //for( i=0; i<nr_rough_ests; i++ ) {
+
+    g.if_rademacher = 1; //Compute random rhs vector 
+    rhs_define( source, l, threading );
+    g.if_rademacher = 0;
+
+   //vector_double_define_random_rademacher( rhs, 0, l->inner_vector_size, l );
+   vector_double_define_random_rademacher( buffer, 0, block_size*block_size, l );
+
+
+
+//---------------------------------ALLOCATING BIG X
+START_MASTER(threading)
+   MALLOC( X, vector_double, block_size );
+   MALLOC( X[0], complex_double, block_size* l->inner_vector_size);
+  // use threading->workspace to distribute pointer to newly allocated memory to all threads
+  ((vector_double *)threading->workspace)[3] = X;
+END_MASTER(threading)
+  SYNC_MASTER_TO_ALL(threading)
+X   = ((vector_double *)threading->workspace)[3];
+
+
+
+
+int j,i, rank;
+MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+    for(j=1; j<block_size; j++){
+X[j] = X[0]+j*l->inner_vector_size;
+}
+
+
+    for(j=0; j<block_size; j++){
+  //printf0( "j=%d, iMIN=%d, iMAX %d \n ",   j, j, l->inner_vector_size	);
+	for(i=j; i<l->inner_vector_size; i+=block_size){
+  START_MASTER(threading)
+  //printf( "i = %d j= %d, RANK %d \n ", i, j, rank); 	
+  X[j][i] = buffer[i/12]; 	
+  //printf0( "j=%d, i=%d, value %f \n ",   j, i, X[j][i]	);
+
+  END_MASTER(threading)
+	}
+    }
+  SYNC_MASTER_TO_ALL(threading)
+
+
+
+//TODO: THERE ARE TWO OPTIONS: TO PRINT THE WHOLE THING OR COMPUT THE BLOCK TRACE. LATER SOUNDS BETTER
+/* START_MASTER(threading)
+for(i=0; i<l->inner_vector_size; i++){	
+  printf0( "------------------------------j=%d, i=%d, value %f \n ",   0, i, creal(X[0][i])	);
+ }	
+  END_MASTER(threading)
+*/ 
+  
+  
+  solve( solution, X[0], l, threading ); //get A⁻¹x
+
+  START_LOCKED_MASTER(threading)
+  FREE( solution, complex_double, l->inner_vector_size );
+  FREE( source, complex_double, l->inner_vector_size );
+  FREE( buffer, complex_double, block_size*block_size );
+
+  FREE( X[0], complex_double, block_size* l->inner_vector_size);
+  FREE( X, vector_double, block_size );
+
+  END_LOCKED_MASTER(threading)
+}
+
+
+/* Testing buffer
+  
+int i;
+START_MASTER(threading)
+
+  for(i=0; i<block_size*block_size; i++){
+  printf0( "i = %d buffer %f  \n ", i, creal(buffer[i])); 	
+}
+  END_MASTER(threading)
+
+*/
+
+
+
+
