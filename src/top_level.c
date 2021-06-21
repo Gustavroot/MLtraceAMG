@@ -200,6 +200,7 @@ void hutchinson_driver( level_struct *l, struct Thread *threading ) {
     END_MASTER(threading)
 
   aux=0.0; 
+  gmres_double_struct* p = &(g.p); //g accesesible from any func.  
   for( i=0; i<nr_ests; i++ ) {
     g.if_rademacher = 1; //Compute random vector
     rhs_define( source, l, threading );
@@ -207,7 +208,7 @@ void hutchinson_driver( level_struct *l, struct Thread *threading ) {
 
     solve( solution, source, l, threading ); //get A⁻¹x
 
-    gmres_double_struct* p = &(g.p);
+    
     estimate[i] = global_inner_product_double( source, solution, p->v_start, p->v_end, l, threading ); //compute x'A⁻¹x
 
     aux += estimate[i]; 	 trace = aux/ (i+1); //average the estimates
@@ -219,7 +220,7 @@ void hutchinson_driver( level_struct *l, struct Thread *threading ) {
     RMSD = sqrt(variance/(j+1)); //RMSD= sqrt(var+ bias²)
 
     START_MASTER(threading)
-	    printf( "%d \t var %f \t RMSD %f \t %f + i%f \n ", i, variance, RMSD, CSPLIT(trace)  );
+	    //printf( "%d \t var %f \t RMSD %f \t %f + i%f \n ", i, variance, RMSD, CSPLIT(trace)  );
     END_MASTER(threading)
     variance=0.0;
     if(i !=0 && RMSD< cabs(rough_trace)*trace_tol) break;
@@ -240,98 +241,163 @@ void hutchinson_driver( level_struct *l, struct Thread *threading ) {
 
 void block_hutchinson_driver( level_struct *l, struct Thread *threading ) {
   
+  
+
   vector_double solution = NULL, source = NULL, buffer =NULL;
   vector_double* X = NULL;
-  int block_size=12;
-
-  /*int i,j, nr_ests=100000;
-  int nr_rough_ests=10;
-  double trace_tol = 1e-4;
-  complex_double trace=0.0;
-  complex_double rough_trace=0.0;
-  complex_double aux=0.0;
-  complex_double estimate[nr_ests]; 
-  complex_double variance = 0.0;
-  complex_double RMSD = 0.0;
-  */
-
+  int block_size=12, nr_ests=10000;
+  complex_double aux[block_size];
+  complex_double estimate[block_size*block_size] ;
+	int j,i, k, rank;
+	MPI_Comm_rank(MPI_COMM_WORLD, &rank);
 
   START_MASTER(threading)
   MALLOC( solution, complex_double, l->inner_vector_size );
   MALLOC( source, complex_double, l->inner_vector_size );
-  MALLOC( buffer, complex_double, block_size*block_size );
+  MALLOC( buffer, complex_double, l->inner_vector_size );
+  //---------------------------------BIG X------------------------------------------------
+  MALLOC( X, vector_double, block_size );
+  MALLOC( X[0], complex_double, block_size* l->inner_vector_size);
   // use threading->workspace to distribute pointer to newly allocated memory to all threads
   ((vector_double *)threading->workspace)[0] = solution;
   ((vector_double *)threading->workspace)[1] = source;
   ((vector_double *)threading->workspace)[2] = buffer;
+  ((vector_double **)threading->workspace)[3] = X;
+  ((vector_double *)threading->workspace)[4] = X[0];
   END_MASTER(threading)
   SYNC_MASTER_TO_ALL(threading)
-
+  
   solution = ((vector_double *)threading->workspace)[0];
   source   = ((vector_double *)threading->workspace)[1];
   buffer   = ((vector_double *)threading->workspace)[2];
-
-  //for( i=0; i<nr_rough_ests; i++ ) {
-
-    g.if_rademacher = 1; //Compute random rhs vector 
-    rhs_define( source, l, threading );
-    g.if_rademacher = 0;
-
-   //vector_double_define_random_rademacher( rhs, 0, l->inner_vector_size, l );
-   vector_double_define_random_rademacher( buffer, 0, block_size*block_size, l );
+  //---------------------------------BIG X------------------------------------------------
+  X   = ((vector_double **)threading->workspace)[3];
+	X[0] = ((vector_double *)threading->workspace)[4];
 
 
-
-//---------------------------------ALLOCATING BIG X
-START_MASTER(threading)
-   MALLOC( X, vector_double, block_size );
-   MALLOC( X[0], complex_double, block_size* l->inner_vector_size);
-  // use threading->workspace to distribute pointer to newly allocated memory to all threads
-  ((vector_double *)threading->workspace)[3] = X;
-END_MASTER(threading)
-  SYNC_MASTER_TO_ALL(threading)
-X   = ((vector_double *)threading->workspace)[3];
+  //---------------------------------SET TO ZERO------------------------------------------------
+for (i=0; i< block_size*block_size; i++){
+  	estimate[i] =0.0;
+ }
 
 
 
 
-int j,i, rank;
-MPI_Comm_rank(MPI_COMM_WORLD, &rank);
-    for(j=1; j<block_size; j++){
-X[j] = X[0]+j*l->inner_vector_size;
-}
 
+//-------------------------BLOCK hUTCHINSON ---------  
+ // for( k=0; k<nr_ests; k++ ) {
 
-    for(j=0; j<block_size; j++){
-  //printf0( "j=%d, iMIN=%d, iMAX %d \n ",   j, j, l->inner_vector_size	);
-	for(i=j; i<l->inner_vector_size; i+=block_size){
+  
   START_MASTER(threading)
-  //printf( "i = %d j= %d, RANK %d \n ", i, j, rank); 	
-  X[j][i] = buffer[i/12]; 	
-  //printf0( "j=%d, i=%d, value %f \n ",   j, i, X[j][i]	);
+   //vector_double_define_random_rademacher( rhs, 0, l->inner_vector_size, l );
+   vector_double_define_random_rademacher( buffer, 0, l->inner_vector_size, l );
 
+
+
+	
+//----------- Setting the pointers to each column of X
+	for(i=0; i<block_size; i++)	X[i] = X[0]+i*l->inner_vector_size;
+
+//----------- Initializing Big X
+	for(j=0; j<block_size; j++){
+  //printf0( "j=%d, iMIN=%d, iMAX %d \n ",   j, j, l->inner_vector_size	);
+		for(i=j; i<l->inner_vector_size; i+=block_size){
+  		//START_MASTER(threading)
+			  //printf( "i = %d j= %d, RANK %d \n ", i, j, rank); 	
+ 			X[j][i] = buffer[i/12]; 	
+  //printf0( "j=%d, i=%d, value %f \n ",   j, i, X[j][i]	);
+  		//END_MASTER(threading)
+		}
+   }
+   
+   
+   
+   	for(j=0; j<block_size; j++){
+  //printf0( "j=%d, iMIN=%d, iMAX %d \n ",   j, j, l->inner_vector_size	);
+		for(i=j; i<l->inner_vector_size; i+=block_size){
+  		//START_MASTER(threading)
+			  //printf( "i = %d j= %d, RANK %d \n ", i, j, rank); 	
+ 			X[j][i] = buffer[i/12]; 	
+  //printf0( "j=%d, i=%d, value %f \n ",   j, i, X[j][i]	);
+  		//END_MASTER(threading)
+		}
+   }
+   
+   
+   
+   
+   
+    char* a[100] ; 
+    
+    sprintf(a, "%s%d%s", "BIG",rank, ".txt");
+    char fileSpec[strlen(a)+1];
+    snprintf( fileSpec, sizeof( fileSpec ), "%s", a );
+
+    
+   FILE * fp;
+   
+   fp = fopen (fileSpec, "w+");
+   
+   
+   for(j=0; j<block_size; j++){
+		for(i=0; i<l->inner_vector_size; i++){
+		   fprintf(fp, "%f\n", j,i, creal(X[j][i]));
+   //fprintf(fp, "%d \t %d\t %f ", j,i, creal(X[j][i]));
+   }
+      //fprintf(fp, "\n");
+   }
+   fclose(fp);
+   
   END_MASTER(threading)
-	}
-    }
   SYNC_MASTER_TO_ALL(threading)
 
-
-
-//TODO: THERE ARE TWO OPTIONS: TO PRINT THE WHOLE THING OR COMPUT THE BLOCK TRACE. LATER SOUNDS BETTER
-/* START_MASTER(threading)
-for(i=0; i<l->inner_vector_size; i++){	
-  printf0( "------------------------------j=%d, i=%d, value %f \n ",   0, i, creal(X[0][i])	);
- }	
-  END_MASTER(threading)
-*/ 
-  
-  
+/*
+//SOLVING PART
   solve( solution, X[0], l, threading ); //get A⁻¹x
+  
+  gmres_double_struct* p = &(g.p);
+ // for (i=0; i< block_size; i++){
+  	aux[k] = global_inner_product_double( X[0], solution, p->v_start, p->v_end, l, threading ); //compute x'A⁻¹x
+  	estimate[0] += aux[k];
+  	
+  	   //printf0( "i = %d estimate %f + i%f  \n ", i, CSPLIT(estimate[0])); 
+  //}
+*/
 
+
+
+//} //LOOP FOR K
+
+
+
+
+
+
+
+//PRINTING ESTIMATES
+/*for (i=0; i< block_size; i++){
+  	estimate[i] /=nr_ests;
+  }
+
+
+
+START_MASTER(threading)
+
+  //for(i=0; i<block_size; i++){
+  printf( "i = %d estimate %f + i%f  \n ", i, CSPLIT(estimate[0])); 	
+//}
+  END_MASTER(threading)
+
+
+*/
+
+  
+  
+  
   START_LOCKED_MASTER(threading)
   FREE( solution, complex_double, l->inner_vector_size );
   FREE( source, complex_double, l->inner_vector_size );
-  FREE( buffer, complex_double, block_size*block_size );
+  FREE( buffer, complex_double, l->inner_vector_size);
 
   FREE( X[0], complex_double, block_size* l->inner_vector_size);
   FREE( X, vector_double, block_size );

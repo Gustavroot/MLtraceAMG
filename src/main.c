@@ -111,8 +111,8 @@ int main( int argc, char **argv ) {
     method_update( l.setup_iter, &l, &threading );
     
     //solve_driver( &l, &threading );
-    hutchinson_driver( &l, &threading );
-	//block_hutchinson_driver( &l, &threading );
+    //hutchinson_driver( &l, &threading );
+	  block_hutchinson_driver( &l, &threading );
   }
   
   finalize_common_thread_data(commonthreaddata);
