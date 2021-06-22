@@ -66,7 +66,7 @@ void vector_PRECISION_define_random_rademacher( vector_PRECISION phi, int start,
   if ( phi != NULL ) {
     int i;
     for ( i=start; i<end; i++ )
-      if(rand()<RAND_MAX/2) phi[i]=  (PRECISION) (-1);
+      if(rand()<RAND_MAX/2.0) phi[i]=  (PRECISION) (-1);
       else phi[i]= (PRECISION)(1);
   } else {
     error0("Error in \"vector_PRECISION_define_random\": pointer is null\n");
