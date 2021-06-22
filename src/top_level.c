@@ -243,7 +243,7 @@ void block_hutchinson_driver( level_struct *l, struct Thread *threading ) {
   
   vector_double solution = NULL, source = NULL, buffer =NULL;
   vector_double* X = NULL;
-  int block_size=12, nr_ests=100000;
+  int block_size=12, nr_ests=1000;
   complex_double aux;
   complex_double estimate[block_size*block_size] ;
 	int j,i, k, rank;
@@ -272,62 +272,71 @@ void block_hutchinson_driver( level_struct *l, struct Thread *threading ) {
   X   = ((vector_double **)threading->workspace)[3];
 	X[0] = ((vector_double *)threading->workspace)[4];
 
-
   //---------------------------------SET TO ZERO------------------------------------------------
 	for (i=0; i< block_size*block_size; i++){
 			estimate[i] =0.0;
 	 }
 
 
- gmres_double_struct* p = &(g.p);
+	gmres_double_struct* p = &(g.p);
 //-------------------------BLOCK hUTCHINSON loop---------  
   for( k=0; k<nr_ests; k++ ) {
- 
-  	START_MASTER(threading)
  	// Initialize buffer with Rademacher
   	vector_double_define_random_rademacher( buffer, 0, l->inner_vector_size/block_size, l );
-  
-//----------- Setting the pointers to each column of X
+  	
+  	//----------- Setting the pointers to each column of X
+  	START_MASTER(threading)
 		for(i=0; i<block_size; i++)	X[i] = X[0]+i*l->inner_vector_size;
 	
-//----------- Fill Big X
+		//----------- Fill Big X
 		for(j=0; j<block_size; j++)
 			for(i=j; i<l->inner_vector_size; i+=block_size)
  				X[j][i] = buffer[i/12]; 	
 		  
-  END_MASTER(threading)
-  SYNC_MASTER_TO_ALL(threading)
+  	END_MASTER(threading)
+  	SYNC_MASTER_TO_ALL(threading)
 
 
-
-
-//-----------------------
-
-
-		for(j=0; j<block_size; j++){
-
- 			solve( solution, X[j], l, threading ); //get A⁻¹x
-  
+//-----------------------COMPUTING THE BLOCK TRACE
+		for(j=0; j<block_size; j++){	
+ 			solve( solution, X[j], l, threading ); //get A⁻¹x 
+ 	
   			for (i=0; i< block_size; i++){
 					aux = global_inner_product_double( X[i], solution, p->v_start, p->v_end, l, threading ); //compute x'A⁻¹x
 					estimate[j+i*block_size] += aux;
- 				 }
+ 				}
  		}	  
 
-} //LOOP FOR K
+	} //LOOP FOR K
 
-
+//------------------------SAVE BLOCK TRACE INTO A FILE
  START_MASTER(threading)
-
-	for (i=0; i< block_size; i++){
-		for(j=0; j<block_size; j++){
+ 	for (i=0; i< block_size; i++)
+		for(j=0; j<block_size; j++)
 			estimate[i*block_size+j] /=nr_ests;
-			 printf0( "%f\t", creal(estimate[i*block_size+j])); 
-			 }	  
-			 printf0("\n "); 
-	 }
+			
+ if(rank==0){		 
+		char a[100] ;   
+		sprintf(a, "%s%d%s", "BLOCK_TRACE",rank, ".txt");
+		char fileSpec[strlen(a)+1];
+		snprintf( fileSpec, sizeof( fileSpec ), "%s", a );  
+		FILE * fp;  
+		fp = fopen (fileSpec, "w+");
+		
+		for (i=0; i< block_size; i++){
+			for(j=0; j<block_size; j++){
+				fprintf(fp, "%f\t", creal(estimate[i*block_size+j]));
+		 	}
+		  fprintf(fp, "\n");
+		}
+		 		
+		fclose(fp);		 
+	}		 
+			 
+	 
  END_MASTER(threading)
-  SYNC_MASTER_TO_ALL(threading)
+ SYNC_MASTER_TO_ALL(threading)
+ 
 
 
 
