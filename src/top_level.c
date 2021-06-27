@@ -166,7 +166,7 @@ void hutchinson_driver( level_struct *l, struct Thread *threading ) {
   complex_double trace=0.0;
   complex_double rough_trace=0.0;
   complex_double aux=0.0;
-  complex_double estimate[nr_ests]; 
+  complex_double sample[nr_ests]; 
   double variance = 0.0;
   double RMSD = 0.0;
 
@@ -190,9 +190,9 @@ void hutchinson_driver( level_struct *l, struct Thread *threading ) {
     solve( solution, source, l, threading ); //get A⁻¹x
 
     gmres_double_struct* p = &(g.p);
-    estimate[i] = global_inner_product_double( source, solution, p->v_start, p->v_end, l, threading ); //compute x'A⁻¹x
+    sample[i] = global_inner_product_double( source, solution, p->v_start, p->v_end, l, threading ); //compute x'A⁻¹x
 
-    aux += estimate[i]; 	 rough_trace = aux/ (i+1); //average the estimates
+    aux += sample[i]; 	 rough_trace = aux/ (i+1); //average the samples
 
   }
     START_MASTER(threading)
@@ -208,13 +208,12 @@ void hutchinson_driver( level_struct *l, struct Thread *threading ) {
 
     solve( solution, source, l, threading ); //get A⁻¹x
 
-    
-    estimate[i] = global_inner_product_double( source, solution, p->v_start, p->v_end, l, threading ); //compute x'A⁻¹x
+    sample[i] = global_inner_product_double( source, solution, p->v_start, p->v_end, l, threading ); //compute x'A⁻¹x
 
-    aux += estimate[i]; 	 trace = aux/ (i+1); //average the estimates
+    aux += sample[i]; 	 trace = aux/ (i+1); //average the samples
 
     for (j=0; j<i; j++) // compute the variance
-        variance += (  estimate[j]- trace)*conj(  estimate[j]- trace); 
+        variance += (  sample[j]- trace)*conj(  sample[j]- trace); 
     variance /= (j+1);
 
     RMSD = sqrt(variance/(j+1)); //RMSD= sqrt(var+ bias²)
@@ -228,7 +227,7 @@ void hutchinson_driver( level_struct *l, struct Thread *threading ) {
   
 
   START_MASTER(threading)
-  printf( "trace result = %f+i%f  for %d estimates \n ",CSPLIT(trace), i );
+  printf( "trace result = %f+i%f  for %d samples \n ",CSPLIT(trace), i );
   END_MASTER(threading)
 
   START_LOCKED_MASTER(threading)
@@ -244,9 +243,11 @@ void block_hutchinson_driver( level_struct *l, struct Thread *threading ) {
   vector_double solution = NULL, source = NULL, buffer =NULL;
   vector_double* X = NULL;
   int block_size=12, nr_ests=1000;
-  complex_double aux;
+  double total_variance=0.0;
   complex_double estimate[block_size*block_size] ;
-	int j,i, k, rank;
+  complex_double sample[nr_ests][block_size*block_size] ;
+  double variance[block_size*block_size] ;
+	int j,i, k, v, rank;
 	MPI_Comm_rank(MPI_COMM_WORLD, &rank);
 
   START_MASTER(threading)
@@ -275,8 +276,8 @@ void block_hutchinson_driver( level_struct *l, struct Thread *threading ) {
   //---------------------------------SET TO ZERO------------------------------------------------
 	for (i=0; i< block_size*block_size; i++){
 			estimate[i] =0.0;
+			variance[i] =0.0;
 	 }
-
 
 	gmres_double_struct* p = &(g.p);
 //-------------------------BLOCK hUTCHINSON loop---------  
@@ -302,10 +303,32 @@ void block_hutchinson_driver( level_struct *l, struct Thread *threading ) {
  			solve( solution, X[j], l, threading ); //get A⁻¹x 
  	
   			for (i=0; i< block_size; i++){
-					aux = global_inner_product_double( X[i], solution, p->v_start, p->v_end, l, threading ); //compute x'A⁻¹x
-					estimate[j+i*block_size] += aux;
+					sample[k][j+i*block_size] = global_inner_product_double( X[i], solution, p->v_start, p->v_end, l, threading ); //compute x'A⁻¹x
+					estimate[j+i*block_size] += sample[k][j+i*block_size];   
+					
+					for (v=0; v<k; v++) // compute the variance for the (i,j) element in the BT
+        		variance[j+i*block_size] += (  sample[v][j+i*block_size]- estimate[j+i*block_size]/(k+1)  )*conj(  sample[v][j+i*block_size]- estimate[j+i*block_size]/(k+1) ); 
+        		 				
+  		  	variance[j+i*block_size] /= (v+1);			
  				}
- 		}	  
+ 				
+ 						
+  		  
+	
+ 		}	//Block sample  
+
+
+ 				   
+ 			for (v=0; v< block_size*block_size; v++){
+				total_variance+= variance[v]; 
+				if(k!= 999) variance[v] =0.0;
+	 		}
+	 		
+	 	START_MASTER(threading)
+	    printf( "%d \t total_var %f \t RMSD %f \n ", k, total_variance, sqrt(total_variance)/(k+1)  );
+    END_MASTER(threading)
+     SYNC_MASTER_TO_ALL(threading)
+		total_variance=0.0;
 
 	} //LOOP FOR K
 
@@ -325,39 +348,22 @@ void block_hutchinson_driver( level_struct *l, struct Thread *threading ) {
 		
 		for (i=0; i< block_size; i++){
 			for(j=0; j<block_size; j++){
-				fprintf(fp, "%f\t", creal(estimate[i*block_size+j]));
+				//fprintf(fp, "%f\t", creal(estimate[i*block_size+j]));
+				fprintf(fp, "%f\t", variance[i*block_size+j]);
 		 	}
 		  fprintf(fp, "\n");
 		}
 		 		
 		fclose(fp);		 
 	}		 
-			 
+	
+	for (i=0; i< block_size*block_size; i++){
+		variance[i] =0.0;
+	}
+		 
 	 
  END_MASTER(threading)
  SYNC_MASTER_TO_ALL(threading)
- 
-
-
-
-//PRINTING ESTIMATES
-/*for (i=0; i< block_size; i++){
-  	estimate[i] /=nr_ests;
-  }
-
-
-
-START_MASTER(threading)
-
-  //for(i=0; i<block_size; i++){
-  printf( "i = %d estimate %f + i%f  \n ", i, CSPLIT(estimate[0])); 	
-//}
-  END_MASTER(threading)
-
-
-*/
-
-  
   
   
   START_LOCKED_MASTER(threading)
@@ -372,10 +378,10 @@ START_MASTER(threading)
 }
 
 
-/* Testing buffer
+/* Testing BIG X
   
-char* a[100] ; 
-    
+		char a[100] ;    
+
     sprintf(a, "%s%d%s", "BIG",rank, ".txt");
     char fileSpec[strlen(a)+1];
     snprintf( fileSpec, sizeof( fileSpec ), "%s", a );
