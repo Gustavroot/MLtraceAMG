@@ -242,7 +242,7 @@ void block_hutchinson_driver( level_struct *l, struct Thread *threading ) {
   	 
   vector_double solution = NULL, source = NULL, buffer =NULL, sample=NULL;
   vector_double* X = NULL;
-  int block_size=12, nr_ests=1;
+  int block_size=12, nr_ests=10000; //35.042074
   complex_double total_variance=0.0;
   complex_double estimate[block_size*block_size] ;
   complex_double variance[block_size*block_size] ;
@@ -282,15 +282,16 @@ void block_hutchinson_driver( level_struct *l, struct Thread *threading ) {
 			estimate[i] =0.0;
 			variance[i] =0.0;
 	 }
-  SYNC_MASTER_TO_ALL(threading)
+  //SYNC_MASTER_TO_ALL(threading)
 	gmres_double_struct* p = &(g.p);
 //-------------------------BLOCK hUTCHINSON loop---------  
   for( k=0; k<nr_ests; k++ ) {
+  START_MASTER(threading)
  	// Initialize buffer with Rademacher
   	vector_double_define_random_rademacher( buffer, 0, l->inner_vector_size/block_size, l );
   	
   	//----------- Setting the pointers to each column of X
-  	START_MASTER(threading)
+  	
 		//for(i=0; i<block_size; i++)	X[i] = X[0]+i*l->inner_vector_size;
 	
 		//----------- Fill Big X
@@ -300,29 +301,6 @@ void block_hutchinson_driver( level_struct *l, struct Thread *threading ) {
 		  
   	END_MASTER(threading)
   	SYNC_MASTER_TO_ALL(threading)
-
-
-char a[100] ;    
-
-    sprintf(a, "%s%d%s", "BIG",rank, ".txt");
-    char fileSpec[strlen(a)+1];
-    snprintf( fileSpec, sizeof( fileSpec ), "%s", a );
-
-    
-   FILE * fp;
-   
-   fp = fopen (fileSpec, "w+");
-   
-   
-   for(j=0; j<block_size; j++){
-		for(i=0; i<l->inner_vector_size; i++){
-		   fprintf(fp, "%f\n",  creal(X[j][i]));
-   //fprintf(fp, "%d \t %d\t %f ", j,i, creal(X[j][i]));
-   }
-      //fprintf(fp, "\n");
-   }
-   fclose(fp);
-
 
 
 
@@ -355,7 +333,7 @@ char a[100] ;
  		  START_MASTER(threading) 
  			for (v=0; v< block_size*block_size; v++){
 				total_variance+= variance[v]; 
-				if(k!= 999) variance[v] =0.0;
+				if(k!= 9999) variance[v] =0.0;
 	 		}
 	 		
 	 	
@@ -437,12 +415,13 @@ char a[100] ;
    
    for(j=0; j<block_size; j++){
 		for(i=0; i<l->inner_vector_size; i++){
-		   fprintf(fp, "%f\n", j,i, creal(X[j][i]));
+		   fprintf(fp, "%f\n",  creal(X[j][i]));
    //fprintf(fp, "%d \t %d\t %f ", j,i, creal(X[j][i]));
    }
       //fprintf(fp, "\n");
    }
    fclose(fp);
+	
    
 */
 
