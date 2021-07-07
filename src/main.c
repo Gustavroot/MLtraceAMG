@@ -21,6 +21,8 @@
  
 #include "main.h"
 
+void block_hutchinson_driver( level_struct *l, struct Thread *threading );
+
 global_struct g;
 #ifdef HAVE_HDF5
 Hdf5_fileinfo h5info;
@@ -95,7 +97,7 @@ int main( int argc, char **argv ) {
 
   commonthreaddata = (struct common_thread_data *)malloc(sizeof(struct common_thread_data));
   init_common_thread_data(commonthreaddata);
-  
+
 #pragma omp parallel num_threads(g.num_openmp_processes)
   {
     g.if_rademacher=0;
@@ -103,16 +105,16 @@ int main( int argc, char **argv ) {
     struct Thread threading;
     setup_threading(&threading, commonthreaddata, &l);
     setup_no_threading(no_threading, &l);
-    
+
     // setup up initial MG hierarchy
     method_setup( NULL, &l, &threading );
-    
+
     // iterative phase
     method_update( l.setup_iter, &l, &threading );
-    
+
     //solve_driver( &l, &threading );
-    //hutchinson_driver( &l, &threading );
-	  block_hutchinson_driver( &l, &threading );
+    //hutchinson_driver_double( &l, &threading );
+    block_hutchinson_driver_double( &l, &threading );
   }
   
   finalize_common_thread_data(commonthreaddata);

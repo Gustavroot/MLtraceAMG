@@ -523,6 +523,10 @@
 #include "var_table.h"
 #include "main_post_def_float.h"
 #include "main_post_def_double.h"
+
+#include "hutchinson_float.h"
+#include "hutchinson_double.h"
+
 #ifdef HAVE_LIME
 #include <lime.h>
 #include <lime_config.h>
