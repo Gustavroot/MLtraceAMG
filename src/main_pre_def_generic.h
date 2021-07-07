@@ -72,6 +72,17 @@
   } gmres_PRECISION_struct;
   
   typedef struct {
+    vector_PRECISION buffer1;
+    vector_PRECISION buffer2;
+    vector_PRECISION* X;
+    vector_PRECISION sample;
+    int nr_rough_ests, nr_ests, block_size, buffer_int1;
+    PRECISION trace_tol;
+    
+    
+  } hutchinson_PRECISION_struct;
+  
+  typedef struct {
     operator_PRECISION_struct op;
     vector_PRECISION buf1, buf2, buf3, buf4, buf5, bbuf1, bbuf2, bbuf3, oe_bbuf[6];
     vector_PRECISION oe_buf[4];

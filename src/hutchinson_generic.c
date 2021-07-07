@@ -151,6 +151,47 @@ void hutchinson_driver_PRECISION( level_struct *l, struct Thread *threading ) {
   END_LOCKED_MASTER(threading)
 }
 
+void block_hutchinson_PRECISION( level_struct *l, struct Thread *threading , complex_PRECISION* estimate, complex_PRECISION* variance ){
+	vector_PRECISION solution = l->h_PRECISION.buffer2; vector_PRECISION* X = l->h_PRECISION.X;
+	vector_PRECISION buffer = l->h_PRECISION.buffer1; vector_PRECISION sample = l->h_PRECISION.sample;
+	gmres_PRECISION_struct* p = &(g.p);
+	int k, i, j;
+	int block_size=l->h_PRECISION.block_size, nr_ests=l->h_PRECISION.buffer_int1; 
+  PRECISION trace_tol = l->h_PRECISION.trace_tol;
+	for( k=0; k<nr_ests; k++ ) {
+		START_MASTER(threading)
+	 	// Initialize buffer with Rademacher
+			vector_PRECISION_define_random_rademacher( buffer, 0, l->inner_vector_size/block_size, l );
+		
+			//----------- Fill Big X
+			for(j=0; j<block_size; j++)
+				for(i=j; i<l->inner_vector_size; i+=block_size)
+	 				X[j][i] = buffer[i/12]; 	
+				
+			END_MASTER(threading)
+			SYNC_MASTER_TO_ALL(threading)
+
+
+	//-----------------------COMPUTING THE ROUGH TRACE
+
+			for(j=0; j<block_size; j++){	
+	 			solve_PRECISION( solution, X[j], l, threading ); //get A⁻¹x 
+
+					for (i=0; i< block_size; i++){
+						complex_PRECISION tmpx = global_inner_product_PRECISION( X[i], solution, p->v_start, p->v_end, l, threading ); //compute x'A⁻¹x   	
+						START_MASTER(threading)
+						sample[j+i*block_size+ k*block_size*block_size ] = tmpx;
+						estimate[j+i*block_size] += sample[j+i*block_size+ k*block_size*block_size ];   
+				  	END_MASTER(threading)			
+						SYNC_MASTER_TO_ALL(threading)
+	 				}		  
+		
+	 		}	//end of Block sample  		
+
+		} //LOOP FOR K
+
+}
+
 
 void block_hutchinson_driver_PRECISION( level_struct *l, struct Thread *threading ) {
 
@@ -160,11 +201,12 @@ void block_hutchinson_driver_PRECISION( level_struct *l, struct Thread *threadin
     END_MASTER(threading)
     fflush(stdout);
   }
-
-  vector_PRECISION solution = NULL, source = NULL, buffer =NULL, sample=NULL;
-  vector_PRECISION* X = NULL; vector_PRECISION total_variance= NULL; vector_PRECISION rough_trace = NULL;
-  int block_size=12, nr_ests=1000; 
-  int nr_rough_ests=5;  PRECISION trace_tol = 1e-2;
+	l->h_PRECISION.block_size =12; l->h_PRECISION.nr_ests= 1000; l->h_PRECISION.nr_rough_ests =5;  l->h_PRECISION.trace_tol = 1e-3;
+  
+  vector_PRECISION solution = l->h_PRECISION.buffer2, source = NULL, buffer =l->h_PRECISION.buffer1, sample=l->h_PRECISION.sample;
+  vector_PRECISION* X = l->h_PRECISION.X; vector_PRECISION total_variance= NULL; vector_PRECISION rough_trace = NULL;
+  int block_size=l->h_PRECISION.block_size, nr_ests=l->h_PRECISION.nr_ests; 
+  int nr_rough_ests=l->h_PRECISION.nr_rough_ests;  PRECISION trace_tol = l->h_PRECISION.trace_tol;
   complex_PRECISION trace=0.0;  
   complex_PRECISION estimate[block_size*block_size] ;
   complex_PRECISION variance[block_size*block_size] ;
@@ -172,26 +214,26 @@ void block_hutchinson_driver_PRECISION( level_struct *l, struct Thread *threadin
 	MPI_Comm_rank(MPI_COMM_WORLD, &rank);
 
   START_MASTER(threading)
-  MALLOC( solution, complex_PRECISION, l->inner_vector_size );
+  MALLOC( l->h_PRECISION.buffer2, complex_PRECISION, l->inner_vector_size );
   MALLOC( source, complex_PRECISION, l->inner_vector_size );
-  MALLOC( buffer, complex_PRECISION, l->inner_vector_size/block_size );
+  MALLOC( l->h_PRECISION.buffer1, complex_PRECISION, l->inner_vector_size/block_size );
   //---------------------------------BIG X------------------------------------------------
-  MALLOC( X, vector_PRECISION, block_size );
-  MALLOC( X[0], complex_PRECISION, block_size* l->inner_vector_size);
-  MALLOC( sample, complex_PRECISION, block_size*block_size*nr_ests);
+  MALLOC( l->h_PRECISION.X, vector_PRECISION, block_size );
+  MALLOC( l->h_PRECISION.X[0], complex_PRECISION, block_size* l->inner_vector_size);
+  MALLOC( l->h_PRECISION.sample, complex_PRECISION, block_size*block_size*nr_ests);
   MALLOC( total_variance, complex_PRECISION, 1);
   MALLOC( rough_trace, complex_PRECISION, 1);
   // use threading->workspace to distribute pointer to newly allocated memory to all threads
-  ((vector_PRECISION *)threading->workspace)[0] = solution;
+  ((vector_PRECISION *)threading->workspace)[0] = l->h_PRECISION.buffer2;
   ((vector_PRECISION *)threading->workspace)[1] = source;
-  ((vector_PRECISION *)threading->workspace)[2] = buffer;
-  ((vector_PRECISION **)threading->workspace)[3] = X;
-  ((vector_PRECISION *)threading->workspace)[4] = X[0];
-  ((vector_PRECISION *)threading->workspace)[5] = sample;
+  ((vector_PRECISION *)threading->workspace)[2] = l->h_PRECISION.buffer1;
+  ((vector_PRECISION **)threading->workspace)[3] = l->h_PRECISION.X;
+  ((vector_PRECISION *)threading->workspace)[4] = l->h_PRECISION.X[0];
+  ((vector_PRECISION *)threading->workspace)[5] = l->h_PRECISION.sample;
   ((vector_PRECISION *)threading->workspace)[6] = total_variance;
   ((vector_PRECISION *)threading->workspace)[7] = rough_trace;
   //----------- Setting the pointers to each column of X
-  for(i=0; i<block_size; i++)	X[i] = X[0]+i*l->inner_vector_size;
+  for(i=0; i<block_size; i++)	l->h_PRECISION.X[i] = l->h_PRECISION.X[0]+i*l->inner_vector_size;
   END_MASTER(threading)
   SYNC_MASTER_TO_ALL(threading)
   
@@ -217,38 +259,9 @@ void block_hutchinson_driver_PRECISION( level_struct *l, struct Thread *threadin
     END_MASTER(threading)
     fflush(stdout);
   }
-
-  for( k=0; k<nr_rough_ests; k++ ) {
-  START_MASTER(threading)
- 	// Initialize buffer with Rademacher
-  	vector_PRECISION_define_random_rademacher( buffer, 0, l->inner_vector_size/block_size, l );
 	
-		//----------- Fill Big X
-		for(j=0; j<block_size; j++)
-			for(i=j; i<l->inner_vector_size; i+=block_size)
- 				X[j][i] = buffer[i/12]; 	
-		  
-  	END_MASTER(threading)
-  	SYNC_MASTER_TO_ALL(threading)
-
-
-//-----------------------COMPUTING THE ROUGH TRACE
-
-		for(j=0; j<block_size; j++){	
- 			solve_PRECISION( solution, X[j], l, threading ); //get A⁻¹x 
-
-  			for (i=0; i< block_size; i++){
-					complex_PRECISION tmpx = global_inner_product_PRECISION( X[i], solution, p->v_start, p->v_end, l, threading ); //compute x'A⁻¹x   	
-					START_MASTER(threading)
-					sample[j+i*block_size+ k*block_size*block_size ] = tmpx;
-					estimate[j+i*block_size] += sample[j+i*block_size+ k*block_size*block_size ];   
-  		  	END_MASTER(threading)			
-  				SYNC_MASTER_TO_ALL(threading)
- 				}		  
-	
- 		}	//end of Block sample  		
-
-  } //LOOP FOR K
+	l->h_PRECISION.buffer_int1 = nr_rough_ests;
+  block_hutchinson_PRECISION(l, threading, estimate, variance);
 
   if(g.my_rank==0){
     START_MASTER(threading)
@@ -385,13 +398,13 @@ void block_hutchinson_driver_PRECISION( level_struct *l, struct Thread *threadin
  
   
   START_LOCKED_MASTER(threading)
-  FREE( solution, complex_PRECISION, l->inner_vector_size );
+  FREE( l->h_PRECISION.buffer2	, complex_PRECISION, l->inner_vector_size );
   FREE( source, complex_PRECISION, l->inner_vector_size );
-  FREE( buffer, complex_PRECISION, l->inner_vector_size/block_size);
+  FREE(  l->h_PRECISION.buffer1, complex_PRECISION, l->inner_vector_size/block_size);
 
-  FREE( X[0], complex_PRECISION, block_size* l->inner_vector_size);
-  FREE( X, vector_PRECISION, block_size );
-	FREE(sample, complex_PRECISION, block_size*block_size*nr_ests);
+  FREE( l->h_PRECISION.X[0], complex_PRECISION, block_size* l->inner_vector_size);
+  FREE( l->h_PRECISION.X, vector_PRECISION, block_size );
+	FREE(l->h_PRECISION.sample, complex_PRECISION, block_size*block_size*nr_ests);
 	FREE(total_variance, complex_PRECISION, 1);
 	FREE(rough_trace, complex_PRECISION, 1);
   END_LOCKED_MASTER(threading)

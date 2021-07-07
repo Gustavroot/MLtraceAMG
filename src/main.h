@@ -283,6 +283,9 @@
     // k cycle
     gmres_float_struct p_float;
     gmres_double_struct p_double;
+    // hutchinson struc
+    hutchinson_float_struct h_float;
+    hutchinson_double_struct h_double;
     // gmres as a smoother
     gmres_float_struct sp_float;
     gmres_double_struct sp_double;
