@@ -76,6 +76,10 @@
     vector_PRECISION buffer2;
     vector_PRECISION* X;
     vector_PRECISION sample;
+    vector_PRECISION rough_trace;
+    complex_PRECISION trace;
+    vector_PRECISION total_variance;
+    
     int nr_rough_ests, nr_ests, block_size, buffer_int1;
     PRECISION trace_tol;
     
