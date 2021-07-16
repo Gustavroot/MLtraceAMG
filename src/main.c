@@ -21,7 +21,6 @@
  
 #include "main.h"
 
-void block_hutchinson_driver( level_struct *l, struct Thread *threading );
 
 global_struct g;
 #ifdef HAVE_HDF5
@@ -114,7 +113,8 @@ int main( int argc, char **argv ) {
 
     //solve_driver( &l, &threading );
     //hutchinson_driver_double( &l, &threading );
-    block_hutchinson_driver_double( &l, &threading );
+    	block_hutchinson_driver_double( &l, &threading );
+		//mlmc_hutchinson_diver_double( &l, &threading );
   }
   
   finalize_common_thread_data(commonthreaddata);

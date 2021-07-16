@@ -202,13 +202,12 @@ void block_hutchinson_PRECISION( level_struct *l, struct Thread *threading , com
    
 		counter=k;
 		if(k !=0 && sqrt(total_variance[0])/(k+1) < cabs(rough_trace[0])*trace_tol){ if(k>4) {counter=k; break;} }
-			
-		START_MASTER(threading) 
-		printf( "%d \t total_var %f \t RMSD %f \t first entry %f \t rough_trace %f\n ", k, creal(total_variance[0]), sqrt(creal(total_variance[0])/(k+1)), creal(estimate[0])/(k+1), creal(rough_trace[0])  );
-		fflush(stdout);
-		END_MASTER(threading)
-		SYNC_MASTER_TO_ALL(threading)
-			
+	//	if(g.my_rank==0){	
+			START_MASTER(threading) 
+			printf( "%d \t total_var %f \t RMSD %f \t first entry %f \t rough_trace %f\n ", k, creal(total_variance[0]), sqrt(creal(total_variance[0])/(k+1)), creal(estimate[0])/(k+1), creal(rough_trace[0])  );
+			END_MASTER(threading)
+   		fflush(stdout);
+	//	}	
 		total_variance[0]=0.0;  //Reset Total Variation
 	} //LOOP FOR K
 		
@@ -235,7 +234,7 @@ void block_hutchinson_driver_PRECISION( level_struct *l, struct Thread *threadin
     END_MASTER(threading)
     fflush(stdout);
   }
-	l->h_PRECISION.block_size =12; l->h_PRECISION.nr_ests= 100000; l->h_PRECISION.nr_rough_ests =5;  l->h_PRECISION.trace_tol = 1e-7;
+	l->h_PRECISION.block_size =12; l->h_PRECISION.nr_ests= 1000; l->h_PRECISION.nr_rough_ests =5;  l->h_PRECISION.trace_tol = 1e-3;
   l->h_PRECISION.trace=0.0;
   
   vector_PRECISION solution = l->h_PRECISION.buffer2, source = NULL, buffer =l->h_PRECISION.buffer1, sample=l->h_PRECISION.sample;
@@ -432,6 +431,68 @@ void block_hutchinson_driver_PRECISION( level_struct *l, struct Thread *threadin
 	
    
 */
+
+
+
+
+
+void mlmc_hutchinson_diver_PRECISION( vector_PRECISION phi, vector_PRECISION Dphi, vector_PRECISION eta,
+                       int res, level_struct *l, struct Thread *threading ) {
+
+//Generate etha and phi----> I probably need to modularize the allocation of variables to pass them to Hutchinson
+//Get The restricted version of A  (applied to a vector)
+// call hutchinson for B1 and B2
+// add results
+
+
+  if ( g.interpolation && l->level>0 ) {
+  	for ( int i=0; i<l->n_cy; i++ ) {
+    /*  if ( i==0 && res == _NO_RES ) {
+        restrict_PRECISION( l->next_level->p_PRECISION.b, eta, l, threading );
+      } else {*/
+        int start = threading->start_index[l->depth];
+        int end   = threading->end_index[l->depth];
+        apply_operator_PRECISION( l->vbuf_PRECISION[2], phi, &(l->p_PRECISION), l, threading ); //get Dphi in current l,save in [2]
+        vector_PRECISION_minus( l->vbuf_PRECISION[3], eta, l->vbuf_PRECISION[2], start, end, l ); //get residual in current l, save in [3]
+        restrict_PRECISION( l->next_level->p_PRECISION.b, l->vbuf_PRECISION[3], l, threading ); // get rhs(error equation) for next level.
+     // }
+      if ( !l->next_level->idle ) {
+        START_MASTER(threading)
+        if ( l->depth == 0 )
+          g.coarse_time -= MPI_Wtime();
+        END_MASTER(threading)
+        if ( l->level > 1 ) {
+          if ( g.kcycle )
+            fgmres_PRECISION( &(l->next_level->p_PRECISION), l->next_level, threading );
+          else
+            vcycle_PRECISION( l->next_level->p_PRECISION.x, NULL, l->next_level->p_PRECISION.b, _NO_RES, l->next_level, threading );
+        } else {
+          if ( g.odd_even ) {
+            if ( g.method == 6 ) {
+              g5D_coarse_solve_odd_even_PRECISION( &(l->next_level->p_PRECISION), &(l->next_level->oe_op_PRECISION), l->next_level, threading );
+            } else {
+              coarse_solve_odd_even_PRECISION( &(l->next_level->p_PRECISION), &(l->next_level->oe_op_PRECISION), l->next_level, threading );
+            }
+          } else {
+            fgmres_PRECISION( &(l->next_level->p_PRECISION), l->next_level, threading );
+          }
+    //    }
+        START_MASTER(threading)
+        if ( l->depth == 0 )
+          g.coarse_time += MPI_Wtime();
+        END_MASTER(threading)
+      }
+      if( i == 0 && res == _NO_RES )
+        interpolate3_PRECISION( phi, l->next_level->p_PRECISION.x, l, threading );
+      else
+        interpolate_PRECISION( phi, l->next_level->p_PRECISION.x, l, threading );
+      smoother_PRECISION( phi, Dphi, eta, l->post_smooth_iter, _RES, _NO_SHIFT, l, threading );
+      res = _RES;
+    }
+  } else {
+    smoother_PRECISION( phi, Dphi, eta, (l->depth==0)?l->n_cy:l->post_smooth_iter, res, _NO_SHIFT, l, threading );
+  }
+}
 
 
 
