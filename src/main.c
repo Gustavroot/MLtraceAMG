@@ -113,8 +113,8 @@ int main( int argc, char **argv ) {
 
     //solve_driver( &l, &threading );
     //hutchinson_driver_double( &l, &threading );
-    	block_hutchinson_driver_double( &l, &threading );
-		//mlmc_hutchinson_diver_double( &l, &threading );
+    //block_hutchinson_driver_double( &l, &threading );
+		mlmc_hutchinson_diver_double( &l, &threading );
   }
   
   finalize_common_thread_data(commonthreaddata);
