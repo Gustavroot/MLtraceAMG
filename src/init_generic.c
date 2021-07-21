@@ -102,8 +102,9 @@ void fine_level_PRECISION_alloc( level_struct *l ) {
   MALLOC( l->vbuf_PRECISION[0], complex_PRECISION, n*l->vector_size );  
   for ( int i=1; i<n; i++ )
     l->vbuf_PRECISION[i] = l->vbuf_PRECISION[0] + i*l->vector_size;
-  MALLOC( l->p_PRECISION.b, complex_PRECISION, 2*l->inner_vector_size );
-  l->p_PRECISION.x = l->p_PRECISION.b + l->inner_vector_size;
+  //MALLOC( l->p_PRECISION.b, complex_PRECISION, 2*l->inner_vector_size );
+  //l->p_PRECISION.x = l->p_PRECISION.b + l->inner_vector_size;
+  fgmres_PRECISION_struct_alloc( g.p.restart_length, g.p.num_restart, l->inner_vector_size, g.p.tol, _GLOBAL_FGMRES, g.p.kind, g.p.preconditioner, g.p.eval_operator, &(l->p_PRECISION), l);	
 }
 
 
@@ -114,8 +115,9 @@ void fine_level_PRECISION_free( level_struct *l ) {
   FREE( l->vbuf_PRECISION[0], complex_PRECISION, n*l->vector_size );  
   for ( int i=1; i<n; i++ )
     l->vbuf_PRECISION[i] = NULL;
-  FREE( l->p_PRECISION.b, complex_PRECISION, 2*l->inner_vector_size );
-  l->p_PRECISION.x = NULL;
+  //FREE( l->p_PRECISION.b, complex_PRECISION, 2*l->inner_vector_size );
+  //l->p_PRECISION.x = NULL;
+  fgmres_PRECISION_struct_free(&(l->p_PRECISION), l);
 }
 
 
