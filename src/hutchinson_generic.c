@@ -438,23 +438,29 @@ void block_hutchinson_driver_PRECISION( level_struct *l, struct Thread *threadin
 
 void mlmc_hutchinson_diver_PRECISION( level_struct *l, struct Thread *threading ) {
 
-	int start, end, i, j;  
-	int nr_ests_1=10; 
-	int nr_ests_2=100;
-  compute_core_start_end( 0, l->inner_vector_size, &start, &end, l, threading );
-  
+	int start, end, i, j, li;
+	int nr_ests_1=10;
+	int nr_ests_2=10;
+	int nr_ests[g.num_levels];
+  //compute_core_start_end( 0, l->inner_vector_size, &start, &end, l, threading );
+
   gmres_PRECISION_struct *p_PRECISION_finest = &(g.p);
 
   gmres_PRECISION_struct *ps[g.num_levels];
+  level_struct *ls[g.num_levels];
   ps[0] = &(g.p);
+  ls[0] = l;
   level_struct *lx = l->next_level;
   for( i=1;i<g.num_levels;i++ ){
     ps[i] = &(lx->p_PRECISION);
+    ls[i] = lx;
     lx = l->next_level;
   }
   
 	complex_PRECISION e1=0.0; 
 	complex_PRECISION e2=0.0;
+	complex_PRECISION es[g.num_levels];
+	memset( es,0,g.num_levels*sizeof(complex_PRECISION) );
 	complex_PRECISION tmpx =0.0;
 	vector_PRECISION mlmc_b1 = NULL;
 		
@@ -465,43 +471,66 @@ void mlmc_hutchinson_diver_PRECISION( level_struct *l, struct Thread *threading 
   SYNC_MASTER_TO_ALL(threading)
   mlmc_b1 = ((vector_PRECISION *)threading->workspace)[4];
 
-	for(i=0;i<nr_ests_1; i++){
+  for( li=0;li<(g.num_levels-1);li++ ){
 
-    START_MASTER(threading)
-		vector_PRECISION_define_random_rademacher( ps[0]->b, 0, l->inner_vector_size, l );		
-		END_MASTER(threading)
-	  SYNC_MASTER_TO_ALL(threading)
-	 
-		restrict_PRECISION( ps[1]->b, ps[0]->b, l, threading ); // get rhs for next level.
-		fgmres_PRECISION( ps[1], l->next_level, threading );
-		interpolate3_PRECISION( mlmc_b1, ps[1]->x, l, threading ); //
-  	
-		fgmres_PRECISION( ps[0], l, threading );
-	  
-		vector_PRECISION_minus( mlmc_b1, ps[0]->x, mlmc_b1, start,  end, l );
-		tmpx = global_inner_product_PRECISION( ps[0]->b, mlmc_b1, ps[0]->v_start, ps[0]->v_end, l, threading );
-	
-		e1+=tmpx;
+    compute_core_start_end( 0, ls[li]->inner_vector_size, &start, &end, l, threading );
 
-    START_MASTER(threading)
-		vector_PRECISION_define_random_rademacher( ps[1]->b, 0, l->next_level->inner_vector_size, l->next_level );		
-		END_MASTER(threading)
-	  SYNC_MASTER_TO_ALL(threading)
+		for(i=0;i<nr_ests_1; i++){
 
-		fgmres_PRECISION( ps[1], l->next_level, threading );
+		  START_MASTER(threading)
+			vector_PRECISION_define_random_rademacher( ps[li]->b, 0, ls[li]->inner_vector_size, ls[li] );		
+			END_MASTER(threading)
+			SYNC_MASTER_TO_ALL(threading)
+		 
+			restrict_PRECISION( ps[li+1]->b, ps[li]->b, ls[li], threading ); // get rhs for next level.
+			fgmres_PRECISION( ps[li+1], ls[li+1], threading );
+			interpolate3_PRECISION( mlmc_b1, ps[li+1]->x, ls[li], threading ); //
+			
+			fgmres_PRECISION( ps[li], ls[li], threading );
+			
+			vector_PRECISION_minus( mlmc_b1, ps[li]->x, mlmc_b1, start, end, ls[li] );
+			tmpx = global_inner_product_PRECISION( ps[li]->b, mlmc_b1, ps[li]->v_start, ps[li]->v_end, ls[li], threading );
+		
+			es[li] += tmpx;
 
-	 	tmpx= global_inner_product_PRECISION( ps[1]->b, ps[1]->x, ps[1]->v_start, ps[1]->v_end, l->next_level, threading );
-	 
-		e2+=tmpx;
-	 	
-		if(g.my_rank==0){
-		START_MASTER(threading)
-		printf("iteration \t %d\n", i);
-	 	END_MASTER(threading)
+			if(g.my_rank==0){
+				START_MASTER(threading)
+				printf("iteration \t %d\n", i);
+		 	  END_MASTER(threading)
+			}
 		}
 	}
+
+  li = g.num_levels-1;
+	for(i=0;i<nr_ests_2; i++){
+	  START_MASTER(threading)
+		vector_PRECISION_define_random_rademacher( ps[li]->b, 0, ls[li]->inner_vector_size, ls[li] );		
+		END_MASTER(threading)
+		SYNC_MASTER_TO_ALL(threading)
+
+		fgmres_PRECISION( ps[li], ls[li], threading );
+
+	 	tmpx= global_inner_product_PRECISION( ps[li]->b, ps[li]->x, ps[li]->v_start, ps[li]->v_end, ls[li], threading );
+	 
+		es[li] += tmpx;
+
+		//if(g.my_rank==0){
+		//  START_MASTER(threading)
+		//  printf("iteration \t %d\n", i);
+	 	//  END_MASTER(threading)
+		//}
+	}
+
+	complex_PRECISION trace = 0.0;
+	for( i=0;i<g.num_levels-1;i++ ){
+	  trace += es[i]/nr_ests_1;
+	}
+	trace += es[g.num_levels-1]/nr_ests_2;
+
 	START_MASTER(threading)
-	printf("%f\n", creal((e1+e2)/nr_ests_1));
+	printf("%f\n", creal(trace));
+	//printf("%f\n", creal(es[0]));
+	//printf("%f\n", creal(es[1]));
 	END_MASTER(threading)	
 
   START_MASTER(threading)
