@@ -438,6 +438,13 @@ void block_hutchinson_driver_PRECISION( level_struct *l, struct Thread *threadin
 
 void mlmc_hutchinson_diver_PRECISION( level_struct *l, struct Thread *threading ) {
 
+  /*
+  TODO :
+  	 -- variance
+  	 -- rough trace
+  	 -- stopping criterium/condition
+  */
+
 	int start, end, i, j, li;
 	int nr_ests_1=10;
 	int nr_ests_2=10;
@@ -483,7 +490,9 @@ void mlmc_hutchinson_diver_PRECISION( level_struct *l, struct Thread *threading 
 			SYNC_MASTER_TO_ALL(threading)
 		 
 			restrict_PRECISION( ps[li+1]->b, ps[li]->b, ls[li], threading ); // get rhs for next level.
+
 			fgmres_PRECISION( ps[li+1], ls[li+1], threading );
+
 			interpolate3_PRECISION( mlmc_b1, ps[li+1]->x, ls[li], threading ); //
 			
 			fgmres_PRECISION( ps[li], ls[li], threading );
@@ -539,3 +548,23 @@ void mlmc_hutchinson_diver_PRECISION( level_struct *l, struct Thread *threading 
   SYNC_MASTER_TO_ALL(threading)
 }
 
+
+
+/*
+
+// 1 (Radamacher vectors of size of level 0)
+A1 - P1 * A2^{-1} * R1
+
+// 2 (Radamacher vectors of size of level 1)
+P1 * A2^{-1} * R1 - P1 * P2 * A3^{-1} * R2 * R1
+A2^{-1} - P2 * A3^{-1} * R2
+
+// 3
+P1 * P2 * A3^{-1} * R2 * R1 - P1 * P2 * P3 * A4^{-1} * R3 * R2 * R1
+A3^{-1} - P3 * A4^{-1} * R3
+
+// 4
+P1 * P2 * P3 * A4^{-1} * R3 * R2 * R1
+A4^{-1}
+
+*/
