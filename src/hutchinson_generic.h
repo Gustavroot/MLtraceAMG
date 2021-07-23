@@ -6,7 +6,7 @@
   struct Thread;
   void block_hutchinson_driver_PRECISION( level_struct *l, struct Thread *threading );
   void hutchinson_driver_PRECISION( level_struct *l, struct Thread *threading );
-  
+  void mlmc_hutchinson_rough_trace_PRECISION( level_struct *l, struct Thread *threading);
   void mlmc_hutchinson_diver_PRECISION( level_struct *l, struct Thread *threading );
 
 

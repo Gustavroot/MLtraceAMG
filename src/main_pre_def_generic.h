@@ -80,6 +80,7 @@
     complex_PRECISION trace;
     vector_PRECISION total_variance;
     
+    complex_PRECISION mlmc_rough_trace;
     int nr_rough_ests, nr_ests, block_size, buffer_int1;
     PRECISION trace_tol;
     
