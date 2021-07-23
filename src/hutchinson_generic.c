@@ -443,96 +443,70 @@ void mlmc_hutchinson_diver_PRECISION( level_struct *l, struct Thread *threading 
 	int nr_ests_2=100;
   compute_core_start_end( 0, l->inner_vector_size, &start, &end, l, threading );
   
+  gmres_PRECISION_struct *p_PRECISION_finest = &(g.p);
+
+  gmres_PRECISION_struct *ps[g.num_levels];
+  ps[0] = &(g.p);
+  level_struct *lx = l->next_level;
+  for( i=1;i<g.num_levels;i++ ){
+    ps[i] = &(lx->p_PRECISION);
+    lx = l->next_level;
+  }
+  
 	complex_PRECISION e1=0.0; 
 	complex_PRECISION e2=0.0;
 	complex_PRECISION tmpx =0.0;
 	vector_PRECISION mlmc_b1 = NULL;
 		
-	fgmres_PRECISION_struct_init(&(l->p_PRECISION));		
-	fgmres_PRECISION_struct_alloc( g.p.restart_length, g.p.num_restart, l->inner_vector_size, g.p.tol, _GLOBAL_FGMRES, g.p.kind, g.p.preconditioner, g.p.eval_operator, &(l->p_PRECISION), l);	
-	
-	
   START_MASTER(threading)
- 
-  //MALLOC( l->p_PRECISION.b, complex_PRECISION, l->inner_vector_size );
-  //MALLOC( l->p_PRECISION.x, complex_PRECISION, l->inner_vector_size );
-  //MALLOC( l->next_level->p_PRECISION.b, complex_PRECISION, l->next_level->inner_vector_size );
-  //MALLOC( l->next_level->p_PRECISION.x, complex_PRECISION, l->next_level->inner_vector_size );
   MALLOC( mlmc_b1, complex_PRECISION, l->inner_vector_size ); 
-  // use threading->workspace to distribute pointer to newly allocated memory to all threads
-// 	((vector_PRECISION *)threading->workspace)[0] = l->p_PRECISION.b;
- // ((vector_PRECISION *)threading->workspace)[1] = l->p_PRECISION.x;
- // ((vector_PRECISION *)threading->workspace)[2] = l->next_level->p_PRECISION.b;
- // ((vector_PRECISION *)threading->workspace)[3] = l->next_level->p_PRECISION.x;
   ((vector_PRECISION *)threading->workspace)[4] = mlmc_b1;
-  
   END_MASTER(threading)
   SYNC_MASTER_TO_ALL(threading)
- 
-	/*l->p_PRECISION.b = ((vector_PRECISION *)threading->workspace)[0];
-  l->p_PRECISION.x = ((vector_PRECISION *)threading->workspace)[1];
-  l->next_level->p_PRECISION.b   = ((vector_PRECISION *)threading->workspace)[2];
-  l->next_level->p_PRECISION.x   = ((vector_PRECISION *)threading->workspace)[3];*/
   mlmc_b1 = ((vector_PRECISION *)threading->workspace)[4];
 
+	for(i=0;i<nr_ests_1; i++){
 
-for(i=0;i<nr_ests_1; i++){
-
-	vector_PRECISION_define_random_rademacher( l->p_PRECISION.b, 0, l->inner_vector_size, l );		
+    START_MASTER(threading)
+		vector_PRECISION_define_random_rademacher( ps[0]->b, 0, l->inner_vector_size, l );		
+		END_MASTER(threading)
+	  SYNC_MASTER_TO_ALL(threading)
 	 
-	restrict_PRECISION( l->next_level->p_PRECISION.b, l->p_PRECISION.b, l, threading ); // get rhs for next level.
-	 	
-	fgmres_PRECISION( &(l->next_level->p_PRECISION), l->next_level, threading );
-	
-	interpolate3_PRECISION( mlmc_b1, l->next_level->p_PRECISION.x, l, threading ); //
+		restrict_PRECISION( ps[1]->b, ps[0]->b, l, threading ); // get rhs for next level.
+		fgmres_PRECISION( ps[1], l->next_level, threading );
+		interpolate3_PRECISION( mlmc_b1, ps[1]->x, l, threading ); //
   	
-	fgmres_PRECISION( &(l->p_PRECISION), l, threading );
+		fgmres_PRECISION( ps[0], l, threading );
 	  
-	vector_PRECISION_minus( mlmc_b1, l->p_PRECISION.x, mlmc_b1, start,  end, l );
-		
-	tmpx = global_inner_product_PRECISION( l->p_PRECISION.b, mlmc_b1, l->p_PRECISION.v_start, l->p_PRECISION.v_end, l, threading );
+		vector_PRECISION_minus( mlmc_b1, ps[0]->x, mlmc_b1, start,  end, l );
+		tmpx = global_inner_product_PRECISION( ps[0]->b, mlmc_b1, ps[0]->v_start, ps[0]->v_end, l, threading );
 	
-	
-	START_MASTER(threading)
-	e1+=tmpx;
-	END_MASTER(threading)
-	  
-	  
-	vector_PRECISION_define_random_rademacher( l->next_level->p_PRECISION.b, 0, l->next_level->inner_vector_size, l->next_level );		
-	fgmres_PRECISION( &(l->next_level->p_PRECISION), l->next_level, threading );
-	
-	 tmpx= global_inner_product_PRECISION( l->next_level->p_PRECISION.b, l->next_level->p_PRECISION.x, l->next_level->p_PRECISION.v_start, l->next_level->p_PRECISION.v_end, l->next_level, threading );
+		e1+=tmpx;
+
+    START_MASTER(threading)
+		vector_PRECISION_define_random_rademacher( ps[1]->b, 0, l->next_level->inner_vector_size, l->next_level );		
+		END_MASTER(threading)
+	  SYNC_MASTER_TO_ALL(threading)
+
+		fgmres_PRECISION( ps[1], l->next_level, threading );
+
+	 	tmpx= global_inner_product_PRECISION( ps[1]->b, ps[1]->x, ps[1]->v_start, ps[1]->v_end, l->next_level, threading );
 	 
-	 
-	START_MASTER(threading)
-	e2+=tmpx;
-	END_MASTER(threading)
+		e2+=tmpx;
 	 	
 		if(g.my_rank==0){
 		START_MASTER(threading)
-			printf("iteration \t %d\n", i);
-	 	 END_MASTER(threading)
+		printf("iteration \t %d\n", i);
+	 	END_MASTER(threading)
 		}
-		
- 
-	
 	}
 	START_MASTER(threading)
 	printf("%f\n", creal((e1+e2)/nr_ests_1));
 	END_MASTER(threading)	
 
-
-
   START_MASTER(threading)
- 
-
  	FREE( mlmc_b1, complex_PRECISION, l->inner_vector_size );
-   //FREE( l->p_PRECISION.b, complex_PRECISION, l->inner_vector_size );
-  //FREE( l->p_PRECISION.x, complex_PRECISION, l->inner_vector_size );
- // FREE( l->next_level->p_PRECISION.b, complex_PRECISION, l->next_level->inner_vector_size );
-  //FREE( l->next_level->p_PRECISION.x, complex_PRECISION, l->next_level->inner_vector_size );
 	END_MASTER(threading)
   SYNC_MASTER_TO_ALL(threading)
-
 }
 
