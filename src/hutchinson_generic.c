@@ -446,9 +446,9 @@ void mlmc_hutchinson_diver_PRECISION( level_struct *l, struct Thread *threading 
   */
 
 	int start, end, i, j, li;
-	int nr_ests_1=10;
-	int nr_ests_2=10;
 	int nr_ests[g.num_levels];
+	nr_ests[0]=10; 
+	for(i=1; i< g.num_levels; i++) nr_ests[i] = nr_ests[i-1]*1;
   //compute_core_start_end( 0, l->inner_vector_size, &start, &end, l, threading );
 
   gmres_PRECISION_struct *p_PRECISION_finest = &(g.p);
@@ -481,8 +481,12 @@ void mlmc_hutchinson_diver_PRECISION( level_struct *l, struct Thread *threading 
   for( li=0;li<(g.num_levels-1);li++ ){
 
     compute_core_start_end( 0, ls[li]->inner_vector_size, &start, &end, l, threading );
-
-		for(i=0;i<nr_ests_1; i++){
+		if(g.my_rank==0){
+			START_MASTER(threading)
+			printf("LEVEL----------- \t %d  \t nr_ests\n", li, nr_ests[li]);
+		 	END_MASTER(threading)
+		}
+		for(i=0;i<nr_ests[li]; i++){
 
 		  START_MASTER(threading)
 			vector_PRECISION_define_random_rademacher( ps[li]->b, 0, ls[li]->inner_vector_size, ls[li] );		
@@ -511,7 +515,7 @@ void mlmc_hutchinson_diver_PRECISION( level_struct *l, struct Thread *threading 
 	}
 
   li = g.num_levels-1;
-	for(i=0;i<nr_ests_2; i++){
+	for(i=0;i<nr_ests[li]; i++){
 	  START_MASTER(threading)
 		vector_PRECISION_define_random_rademacher( ps[li]->b, 0, ls[li]->inner_vector_size, ls[li] );		
 		END_MASTER(threading)
@@ -523,18 +527,18 @@ void mlmc_hutchinson_diver_PRECISION( level_struct *l, struct Thread *threading 
 	 
 		es[li] += tmpx;
 
-		//if(g.my_rank==0){
-		//  START_MASTER(threading)
-		//  printf("iteration \t %d\n", i);
-	 	//  END_MASTER(threading)
-		//}
+		/*if(g.my_rank==0){
+				START_MASTER(threading)
+				printf("iteration \t %d\n", i);
+		 	  END_MASTER(threading)
+			}*/
 	}
 
 	complex_PRECISION trace = 0.0;
 	for( i=0;i<g.num_levels-1;i++ ){
-	  trace += es[i]/nr_ests_1;
+	  trace += es[i]/nr_ests[i];
 	}
-	trace += es[g.num_levels-1]/nr_ests_2;
+	trace += es[g.num_levels-1]/nr_ests[i];
 
 	START_MASTER(threading)
 	printf("%f\n", creal(trace));
