@@ -72,7 +72,7 @@ complex_PRECISION hutchinson_driver_PRECISION( level_struct *l, struct Thread *t
 
   int i,j, nr_ests=10000;
   int nr_rough_ests=10;
-  PRECISION trace_tol = 1e-4;
+  PRECISION trace_tol = 1e-2;
   complex_PRECISION trace=0.0;
   complex_PRECISION rough_trace=0.0;
   complex_PRECISION aux=0.0;
@@ -92,29 +92,9 @@ complex_PRECISION hutchinson_driver_PRECISION( level_struct *l, struct Thread *t
   solution = ((vector_PRECISION *)threading->workspace)[0];
   source   = ((vector_PRECISION *)threading->workspace)[1];
 
-  //rough_trace = l->h_PRECISION.rough_trace[0];
   rough_trace = l->h_PRECISION.rt;
 
-  /*
-  for( i=0; i<nr_rough_ests; i++ ) {
-    g.if_rademacher = 1; //Compute random vector
-    rhs_define_PRECISION( source, l, threading );
-    g.if_rademacher = 0;
-
-    solve_PRECISION( solution, source, l, threading ); //get A⁻¹x
-
-    gmres_PRECISION_struct* p = &(g.p);
-    sample[i] = global_inner_product_PRECISION( source, solution, p->v_start, p->v_end, l, threading ); //compute x'A⁻¹x
-
-    aux += sample[i]; 	 rough_trace = aux/ (i+1); //average the samples
-
-  }
-  */
-
-  //START_MASTER(threading)
-  //printf( "Rough Trace: %f + i%f \n ", CSPLIT(rough_trace)  );
-  //END_MASTER(threading)
-  //SYNC_MASTER_TO_ALL(threading)
+ 
 
   aux=0.0; 
   gmres_PRECISION_struct* p = &(g.p); //g accesesible from any func.  
@@ -138,10 +118,10 @@ complex_PRECISION hutchinson_driver_PRECISION( level_struct *l, struct Thread *t
 
     RMSD = sqrt(variance/(j+1)); //RMSD= sqrt(var+ bias²)
 
-    //START_MASTER(threading)
-	//    //printf( "%d \t var %f \t RMSD %f \t %f + i%f \n ", i, variance, RMSD, CSPLIT(trace)  );
-    //END_MASTER(threading)
-    //SYNC_MASTER_TO_ALL(threading)
+    START_MASTER(threading)
+	  //if(g.my_rank==0)  printf( "%d \t var %f \t RMSD %f \t %f + i%f \n ", i, variance, RMSD, CSPLIT(trace)  );
+    END_MASTER(threading)
+    SYNC_MASTER_TO_ALL(threading)
     variance=0.0;
     if(i !=0 && RMSD< cabs(rough_trace)*trace_tol && i>l->h_PRECISION.min_iters) break;
   }
@@ -574,7 +554,7 @@ void hutchinson_diver_PRECISION_alloc( level_struct *l, struct Thread *threading
   SYNC_MASTER_TO_ALL(threading)
   h->mlmc_b1 = ((vector_PRECISION *)threading->workspace)[0];
 
-  l->h_PRECISION.rough_trace
+  //	l->h_PRECISION.rough_trace
 
   //MALLOC( h->rough_trace, complex_PRECISION, h->nr_levels );
 }
@@ -653,9 +633,10 @@ delta_i(i>0) = (1.0-x)/(nr_levels-1)
 
   int start, end, j, li;
 	int nr_ests[g.num_levels];
+	int counter[g.num_levels];
 	PRECISION RMSD;
 	PRECISION variance=0.0;
-	PRECISION est_tol = 1E-3;
+	PRECISION est_tol = 1E-2;
 	nr_ests[0]=10; 
 	for(i=1; i< g.num_levels; i++) nr_ests[i] = nr_ests[i-1]*1;
 	
@@ -688,6 +669,7 @@ delta_i(i>0) = (1.0-x)/(nr_levels-1)
 */
 		for( li=0;li<(g.num_levels-1);li++ ){
 			variance=0.0;
+			counter[li]=0;
 			complex_PRECISION sample[nr_ests[li]]; 
 		  compute_core_start_end( 0, ls[li]->inner_vector_size, &start, &end, l, threading );
 			if(g.my_rank==0){
@@ -726,7 +708,8 @@ delta_i(i>0) = (1.0-x)/(nr_levels-1)
 	   			printf( "%d \t var %f \t Est %f  \t RMSD %f <	%f ?? \n ", i, variance, creal( es[li]/(i+1) ), RMSD,  cabs(l->h_PRECISION.mlmc_rough_ests[li])*est_tol );
    				END_MASTER(threading)
 				}
-				if(i !=0 && RMSD< cabs(l->h_PRECISION.mlmc_rough_ests[li])*est_tol) break;
+				counter[li]=i+1;
+				if(i !=0 && RMSD< cabs(l->h_PRECISION.mlmc_rough_ests[li])*est_tol){counter[li]=i+1; break;}
 				
 			}
 		}
@@ -740,6 +723,7 @@ delta_i(i>0) = (1.0-x)/(nr_levels-1)
 			}
 		complex_PRECISION sample[nr_ests[li]]; 
 		variance = 0.0;
+		counter[li]=0;
 		for(i=0;i<nr_ests[li]; i++){
 			START_MASTER(threading)
 			vector_PRECISION_define_random_rademacher( ps[li]->b, 0, ls[li]->inner_vector_size, ls[li] );		
@@ -763,17 +747,22 @@ delta_i(i>0) = (1.0-x)/(nr_levels-1)
 	   			printf( "%d \t var %f \t Est %f  \t RMSD %f <	%f ?? \n ", i, variance, creal( es[li]/(i+1) ), RMSD,  cabs(l->h_PRECISION.mlmc_rough_ests[li])*est_tol );
    				END_MASTER(threading)
 				}
-				if(i !=0 && RMSD< cabs(l->h_PRECISION.mlmc_rough_ests[li])*est_tol) break;
+				counter[li]=i+1;
+				if(i !=0 && RMSD< cabs(l->h_PRECISION.mlmc_rough_ests[li])*est_tol){counter[li]=i+1; break;}
 		}
 
 		trace = 0.0;
-		for( i=0;i<g.num_levels-1;i++ ){
-			trace += es[i]/nr_ests[i];
+		for( i=0;i<g.num_levels;i++ ){
+			trace += es[i]/counter[i];		
+			START_MASTER(threading)
+		if(g.my_rank==0)printf("Level:%d, ................................%f    %d\n", i, es[i],counter[i]);
+		END_MASTER(threading)	
+
 		}
-		trace += es[g.num_levels-1]/nr_ests[i];
+
 
 		START_MASTER(threading)
-		printf("%f\n", creal(trace));
+		if(g.my_rank==0)printf("\n\n................................%f\n", creal(trace));
 		END_MASTER(threading)	
 
 	
