@@ -310,7 +310,6 @@ void method_free( level_struct *l ) {
   } else {
     fgmres_double_struct_free( &(g.p), l );
   }
-	mlmc_hutchinson_diver_double_free(l);
 }
 
 
@@ -409,10 +408,7 @@ void method_init( int *argc, char ***argv, level_struct *l ) {
   operator_double_alloc( &(g.op_double), _ORDINARY, l ); 
   operator_double_define( &(g.op_double), l );
   MALLOC( g.odd_even_table, int, l->num_inner_lattice_sites );
-  define_odd_even_table( l );
-  mlmc_hutchinson_diver_double_init( l );
-	mlmc_hutchinson_diver_double_alloc( l);
-  
+  define_odd_even_table( l );  
 }
 
 

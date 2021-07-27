@@ -79,6 +79,7 @@
     vector_PRECISION rough_trace;
     complex_PRECISION trace;
     vector_PRECISION total_variance;
+    complex_PRECISION rt;
     
     vector_PRECISION mlmc_b1;
     vector_PRECISION mlmc_rough_ests;
@@ -88,7 +89,7 @@
     int max_iters, min_iters;
     
     PRECISION trace_tol;
-    
+    int nr_levels;
     
   } hutchinson_PRECISION_struct;
   
