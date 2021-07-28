@@ -181,7 +181,7 @@ void restrict_PRECISION( vector_PRECISION phi_c, vector_PRECISION phi, level_str
     phi_pt   = phi + i*2*num_parent_eig_vect*aggregate_sites;
     phi_c_pt = l->next_level->gs_PRECISION.transfer_buffer + i*2*num_eig_vect;
     operator = l->is_PRECISION.operator + i*2*num_eig_vect*num_parent_eig_vect*aggregate_sites;
-
+     
     for ( j=0; j<2*num_eig_vect; j++ )
       phi_c_pt[j] = 0;
     
