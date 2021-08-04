@@ -427,6 +427,7 @@ void hutchinson_diver_PRECISION_init( level_struct *l, struct Thread *threading 
   hutchinson_PRECISION_struct* h = &(l->h_PRECISION);
 
   h->mlmc_b1 = NULL;
+  h->mlmc_b1_float=NULL;
   //h->rough_trace = NULL;
 }
 
@@ -437,9 +438,13 @@ void hutchinson_diver_PRECISION_alloc( level_struct *l, struct Thread *threading
   START_MASTER(threading)
   MALLOC( h->mlmc_b1, complex_PRECISION, l->inner_vector_size );   
   ((vector_PRECISION *)threading->workspace)[0] = h->mlmc_b1;
+  
+  MALLOC( h->mlmc_b1_float, complex_float, l->inner_vector_size );   
+  ((vector_float *)threading->workspace)[1] = h->mlmc_b1_float;
   END_MASTER(threading)
   SYNC_MASTER_TO_ALL(threading)
   h->mlmc_b1 = ((vector_PRECISION *)threading->workspace)[0];
+  h->mlmc_b1_float = ((vector_float *)threading->workspace)[1];
 
   //  l->h_PRECISION.rough_trace
 
@@ -451,6 +456,7 @@ void hutchinson_diver_PRECISION_free( level_struct *l, struct Thread *threading 
 
   START_MASTER(threading)
   FREE( h->mlmc_b1, complex_PRECISION, l->inner_vector_size );   
+  FREE( h->mlmc_b1_float, complex_float, l->inner_vector_size );   
   END_MASTER(threading)
   SYNC_MASTER_TO_ALL(threading)
 
@@ -486,13 +492,14 @@ complex_PRECISION mlmc_hutchinson_diver_PRECISION( level_struct *l, struct Threa
   nr_ests[0]=100; 
   for(i=1; i< g.num_levels; i++) nr_ests[i] = nr_ests[i-1]*10;
     
-  gmres_PRECISION_struct *ps[g.num_levels]; 
+  gmres_float_struct *ps[g.num_levels]; 
+  gmres_double_struct *ps_double[1]; 
   level_struct *ls[g.num_levels];  
-  ps[0] = &(g.p);
+  ps_double[0] = &(g.p);
   ls[0] = l;
   level_struct *lx = l->next_level;
   for( i=1;i<g.num_levels;i++ ){
-    ps[i] = &(lx->p_PRECISION); // p_PRECISION in each level
+    ps[i] = &(lx->p_float); // p_PRECISION in each level
     ls[i] = lx;                  // level_struct of each level
     lx = l->next_level;
   }
@@ -504,55 +511,75 @@ complex_PRECISION mlmc_hutchinson_diver_PRECISION( level_struct *l, struct Threa
 
 //-----------------Hutchinson for all but coarsest level-----------------    
   for( li=0;li<(g.num_levels-1);li++ ){
+             
     variance=0.0;    counter[li]=0;
     complex_PRECISION sample[nr_ests[li]]; 
     compute_core_start_end( 0, ls[li]->inner_vector_size, &start, &end, l, threading );
     
     START_MASTER(threading)
-    if(g.my_rank==0) printf("LEVEL----------- \t %d  \t %d\n", li, nr_ests[li]);
+    if(g.my_rank==0) printf("LEVEL----------- \t %d  \t ests: %d  \t start: %d  \t end: %d \n ", li, nr_ests[li], start, end);
     END_MASTER(threading)
-
-    for(i=0;i<nr_ests[li]; i++){
-
+		
+		for(i=0;i<nr_ests[li]; i++){
       START_MASTER(threading) //Get random vector:
-      vector_PRECISION_define_random_rademacher( ps[li]->b, 0, ls[li]->inner_vector_size, ls[li] );    
+      if(li==0)
+      	vector_PRECISION_define_random_rademacher( ps_double[li]->b, 0, ls[li]->inner_vector_size, ls[li] );    
+      else
+      	vector_float_define_random_rademacher( ps[li]->b, 0, ls[li]->inner_vector_size, ls[li] );    
       END_MASTER(threading)
       SYNC_MASTER_TO_ALL(threading)
-            exit(0);
-      //-----------------Solve the system in current level and the next one-----------------      
-      restrict_PRECISION( ps[li+1]->b, ps[li]->b, ls[li], threading ); // get rhs for next level.
-
-      fgmres_PRECISION( ps[li+1], ls[li+1], threading );               //solve in next level
-      interpolate3_PRECISION( h->mlmc_b1, ps[li+1]->x, ls[li], threading ); //      
-      fgmres_PRECISION( ps[li], ls[li], threading );
+      //-----------------Solve the system in current level and the next one----------------- 
+      if(li==0){
+		    trans_float( l->sbuf_float[0], ps_double[li]->b, l->s_float.op.translation_table, l, threading );     
+		    restrict_float( ps[li+1]->b, l->sbuf_float[0], ls[li], threading ); // get rhs for next level.
+		    fgmres_float( ps[li+1], ls[li+1], threading );               //solve in next level
+		    interpolate3_float( l->sbuf_float[1], ps[li+1]->x, ls[li], threading ); //      
+		    trans_back_float( h->mlmc_b1, l->sbuf_float[1], l->s_float.op.translation_table, l, threading );
+		    fgmres_PRECISION( ps_double[li], ls[li], threading );
+      }
+      else{
+        restrict_float( ps[li+1]->b, ps[li]->b, ls[li], threading ); // get rhs for next level.
+        fgmres_float( ps[li+1], ls[li+1], threading );               //solve in next level
+        interpolate3_float( h->mlmc_b1_float, ps[li+1]->x, ls[li], threading ); //      
+        fgmres_float( ps[li], ls[li], threading );
+      }     
       //------------------------------------------------------------------------------------
       
       //--------------Get the difference of the solutions and the corresponding sample--------------                        
-      vector_PRECISION_minus( h->mlmc_b1, ps[li]->x, h->mlmc_b1, start, end, ls[li] );
-      tmpx = global_inner_product_PRECISION( ps[li]->b, h->mlmc_b1, ps[li]->v_start, ps[li]->v_end, ls[li], threading );      
-      sample[i]= tmpx;      
-      es[li] += tmpx;
-      //----------------------------------------------------------------------------------------------
-      
-      //--------------Get the Variance in the current level and use it in stop criteria---------------                              
+      if(li==0){     
+        vector_PRECISION_minus( h->mlmc_b1, ps_double[li]->x, h->mlmc_b1, start, end, ls[li] );
+        tmpx = global_inner_product_PRECISION( ps_double[li]->b, h->mlmc_b1, ps_double[li]->v_start, ps_double[li]->v_end, ls[li], threading );      
+        sample[i]= tmpx;      
+        es[li] += tmpx;
+	  	}
+	  	else{
+	  	  vector_float_minus( h->mlmc_b1_float, ps[li]->x, h->mlmc_b1_float, start, end, ls[li] );
+        tmpx =  global_inner_product_float( ps[li]->b, h->mlmc_b1_float, ps[li]->v_start, ps[li]->v_end, ls[li], threading );      
+        sample[i]= tmpx;      
+        es[li] +=  tmpx;
+        //printf("%f %f\n", CSPLIT(es[li]));
+	  	}
+	   //----------------------------------------------------------------------------------------------
+	   
+	   //--------------Get the Variance in the current level and use it in stop criteria---------------                              
       for (j=0; j<i; j++) // compute the variance
         variance += (sample[j]- es[li]/(i+1)) *conj( sample[j]- es[li]/(i+1)); 
       variance /= (j+1);
       RMSD = sqrt(variance/(j+1)); //RMSD= sqrt(var+ bias²)
-            
-      
-      START_MASTER(threading)
+	   
+	    START_MASTER(threading)
       if(g.my_rank==0)
       printf( "%d \t var %f \t Est %f  \t RMSD %f <  %f ?? \n ", i, variance, creal( es[li]/(i+1) ), RMSD,  cabs(rough_trace)*tol[li]*est_tol );
       END_MASTER(threading)
-      
-      
+           
       counter[li]=i+1;
       if(i !=0 && RMSD< cabs(rough_trace)*tol[li]*est_tol){counter[li]=i+1; break;}
-      //----------------------------------------------------------------------------------------------        
+      //----------------------------------------------------------------------------------------------    
+		//exit(0);
     }
   }
-//---------------------------------------------------------------------  
+  
+
 
 //-----------------Hutchinson for just coarsest level-----------------       
   li = g.num_levels-1;
@@ -566,12 +593,12 @@ complex_PRECISION mlmc_hutchinson_diver_PRECISION( level_struct *l, struct Threa
   counter[li]=0;
   for(i=0;i<nr_ests[li]; i++){
     START_MASTER(threading)
-    vector_PRECISION_define_random_rademacher( ps[li]->b, 0, ls[li]->inner_vector_size, ls[li] );    
+    vector_float_define_random_rademacher( ps[li]->b, 0, ls[li]->inner_vector_size, ls[li] );    
     END_MASTER(threading)
     SYNC_MASTER_TO_ALL(threading)
     
-    fgmres_PRECISION( ps[li], ls[li], threading );
-    tmpx= global_inner_product_PRECISION( ps[li]->b, ps[li]->x, ps[li]->v_start, ps[li]->v_end, ls[li], threading );   
+    fgmres_float( ps[li], ls[li], threading );
+    tmpx= global_inner_product_float( ps[li]->b, ps[li]->x, ps[li]->v_start, ps[li]->v_end, ls[li], threading );   
     sample[i]= tmpx;      
     es[li] += tmpx;
 
@@ -580,7 +607,7 @@ complex_PRECISION mlmc_hutchinson_diver_PRECISION( level_struct *l, struct Threa
     variance /= (j+1);
     RMSD = sqrt(variance/(j+1)); //RMSD= sqrt(var+ bias²)
       
-    
+   
     START_MASTER(threading)
     if(g.my_rank==0)
       printf( "%d \t var %f \t Est %f  \t RMSD %f <  %f ?? \n ", i, variance, creal( es[li]/(i+1) ), RMSD,  cabs(rough_trace)*tol[li]*est_tol );
@@ -590,7 +617,8 @@ complex_PRECISION mlmc_hutchinson_diver_PRECISION( level_struct *l, struct Threa
     if(i !=0 && RMSD< cabs(rough_trace)*tol[li]*est_tol){counter[li]=i+1; break;}
   }
 
-  trace = 0.0;
+
+	trace = 0.0;
   for( i=0;i<g.num_levels;i++ ){
     trace += es[i]/counter[i];    
   START_MASTER(threading)
@@ -598,11 +626,11 @@ complex_PRECISION mlmc_hutchinson_diver_PRECISION( level_struct *l, struct Threa
   END_MASTER(threading)  
 
   }
-//---------------------------------------------------------------------  
-
+	
   START_MASTER(threading)
-  if(g.my_rank==0)printf("\n\n................................%f\n", creal(trace));
-  END_MASTER(threading)  
+  if(g.my_rank==0)
+    printf( "\n\n\n\n %f+i %f", CSPLIT( trace ));
+  END_MASTER(threading)
   
   
   return trace;

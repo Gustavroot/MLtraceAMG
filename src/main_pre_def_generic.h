@@ -82,6 +82,7 @@
     complex_PRECISION rt;
     
     vector_PRECISION mlmc_b1;
+    vector_float mlmc_b1_float;
     vector_PRECISION mlmc_rough_ests;
     
     
