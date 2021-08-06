@@ -119,7 +119,7 @@ complex_PRECISION hutchinson_driver_PRECISION( level_struct *l, struct Thread *t
     RMSD = sqrt(variance/(j+1)); //RMSD= sqrt(var+ bias²)
 
     START_MASTER(threading)
-    if(g.my_rank==0)  printf( "%d \t var %f \t RMSD %f \t %f + i%f \n ", i, variance, RMSD, CSPLIT(trace)  );
+    if(g.my_rank==0)  printf( "%d \t var %f \t RMSD %f \t Trace: %f + i%f \n ", i, variance, RMSD, CSPLIT(trace)  );
     END_MASTER(threading)
     SYNC_MASTER_TO_ALL(threading)
     variance=0.0;
@@ -522,8 +522,9 @@ complex_PRECISION mlmc_hutchinson_diver_PRECISION( level_struct *l, struct Threa
 		
 		for(i=0;i<nr_ests[li]; i++){
       START_MASTER(threading) //Get random vector:
-      if(li==0)
-      	vector_PRECISION_define_random_rademacher( ps_double[li]->b, 0, ls[li]->inner_vector_size, ls[li] );    
+      if(li==0){
+      	vector_PRECISION_define_random_rademacher( ps_double[li]->b, 0, ls[li]->inner_vector_size, ls[li] );        	
+      }
       else
       	vector_float_define_random_rademacher( ps[li]->b, 0, ls[li]->inner_vector_size, ls[li] );    
       END_MASTER(threading)
@@ -536,6 +537,12 @@ complex_PRECISION mlmc_hutchinson_diver_PRECISION( level_struct *l, struct Threa
 		    interpolate3_float( l->sbuf_float[1], ps[li+1]->x, ls[li], threading ); //      
 		    trans_back_float( h->mlmc_b1, l->sbuf_float[1], l->s_float.op.translation_table, l, threading );
 		    fgmres_PRECISION( ps_double[li], ls[li], threading );
+		    
+		    complex_double tmpx1 = global_inner_product_double( ps_double[li]->b, ps_double[li]->b, start, end, ls[li], threading );    
+			  START_MASTER(threading)      
+				if(g.my_rank==0) printf("\n\n--------------NORM-------------------- %d  %f \n\n", i, creal(tmpx1) );
+				END_MASTER(threading)
+				
       }
       else{
         restrict_float( ps[li+1]->b, ps[li]->b, ls[li], threading ); // get rhs for next level.
