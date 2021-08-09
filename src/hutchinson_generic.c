@@ -472,7 +472,7 @@ complex_PRECISION mlmc_hutchinson_diver_PRECISION( level_struct *l, struct Threa
   complex_PRECISION trace=0.0;
 //--------------Setting the tolerance per level----------------
   int i;
-  PRECISION est_tol = 1E-3;
+  PRECISION est_tol = 1E-4;
   PRECISION delta[g.num_levels];
   PRECISION tol[g.num_levels];
   PRECISION d0 = 0.4; 
@@ -489,8 +489,8 @@ complex_PRECISION mlmc_hutchinson_diver_PRECISION( level_struct *l, struct Threa
   int counter[g.num_levels];
   PRECISION RMSD;
   PRECISION variance=0.0;  
-  nr_ests[0]=100; 
-  for(i=1; i< g.num_levels; i++) nr_ests[i] = nr_ests[i-1]*10;
+  nr_ests[0]=10000; 
+  for(i=1; i< g.num_levels; i++) nr_ests[i] = nr_ests[i-1]*1;
     
   gmres_float_struct *ps[g.num_levels]; 
   gmres_double_struct *ps_double[1]; 
@@ -498,12 +498,23 @@ complex_PRECISION mlmc_hutchinson_diver_PRECISION( level_struct *l, struct Threa
   ps_double[0] = &(g.p);
   ls[0] = l;
   level_struct *lx = l->next_level;
+  
+  START_MASTER(threading)
+  if(g.my_rank==0) printf("LEVEL----------- \t %d  \t vector size: %d \n ", 0, ls[0]->inner_vector_size);
+  END_MASTER(threading)
+  SYNC_MASTER_TO_ALL(threading)
   for( i=1;i<g.num_levels;i++ ){
     ps[i] = &(lx->p_float); // p_PRECISION in each level
     ls[i] = lx;                  // level_struct of each level
-    lx = l->next_level;
+    lx = lx->next_level;
+    SYNC_MASTER_TO_ALL(threading)
+    START_MASTER(threading)
+    if(g.my_rank==0) printf("LEVEL----------- \t %d  \t vector size: %d \n ", i, ls[i]->inner_vector_size);
+    END_MASTER(threading)
+          
   }
-  
+   
+  //exit(0);
   complex_PRECISION es[g.num_levels];  //An estimate per level
   memset( es,0,g.num_levels*sizeof(complex_PRECISION) );
   complex_PRECISION tmpx =0.0;
@@ -517,13 +528,13 @@ complex_PRECISION mlmc_hutchinson_diver_PRECISION( level_struct *l, struct Threa
     compute_core_start_end( 0, ls[li]->inner_vector_size, &start, &end, l, threading );
     
     START_MASTER(threading)
-    if(g.my_rank==0) printf("LEVEL----------- \t %d  \t ests: %d  \t start: %d  \t end: %d \n ", li, nr_ests[li], start, end);
+    if(g.my_rank==0) printf("LEVEL----------- \t %d  \t ests: %d  \t start: %d  \t end: %d \t vector size: %d \n ", li, nr_ests[li], start, ps_double[li]->v_end, ls[li]->inner_vector_size);
     END_MASTER(threading)
 		
 		for(i=0;i<nr_ests[li]; i++){
       START_MASTER(threading) //Get random vector:
       if(li==0){
-      	vector_PRECISION_define_random_rademacher( ps_double[li]->b, 0, ls[li]->inner_vector_size, ls[li] );        	
+      	vector_double_define_random_rademacher( ps_double[li]->b, 0, ls[li]->inner_vector_size, ls[li] );        	
       }
       else
       	vector_float_define_random_rademacher( ps[li]->b, 0, ls[li]->inner_vector_size, ls[li] );    
@@ -536,13 +547,7 @@ complex_PRECISION mlmc_hutchinson_diver_PRECISION( level_struct *l, struct Threa
 		    fgmres_float( ps[li+1], ls[li+1], threading );               //solve in next level
 		    interpolate3_float( l->sbuf_float[1], ps[li+1]->x, ls[li], threading ); //      
 		    trans_back_float( h->mlmc_b1, l->sbuf_float[1], l->s_float.op.translation_table, l, threading );
-		    fgmres_PRECISION( ps_double[li], ls[li], threading );
-		    
-		    complex_double tmpx1 = global_inner_product_double( ps_double[li]->b, ps_double[li]->b, start, end, ls[li], threading );    
-			  START_MASTER(threading)      
-				if(g.my_rank==0) printf("\n\n--------------NORM-------------------- %d  %f \n\n", i, creal(tmpx1) );
-				END_MASTER(threading)
-				
+		    fgmres_double( ps_double[li], ls[li], threading );		
       }
       else{
         restrict_float( ps[li+1]->b, ps[li]->b, ls[li], threading ); // get rhs for next level.
@@ -554,7 +559,7 @@ complex_PRECISION mlmc_hutchinson_diver_PRECISION( level_struct *l, struct Threa
       
       //--------------Get the difference of the solutions and the corresponding sample--------------                        
       if(li==0){     
-        vector_PRECISION_minus( h->mlmc_b1, ps_double[li]->x, h->mlmc_b1, start, end, ls[li] );
+        vector_double_minus( h->mlmc_b1, ps_double[li]->x, h->mlmc_b1, start, end, ls[li] );
         tmpx = global_inner_product_PRECISION( ps_double[li]->b, h->mlmc_b1, ps_double[li]->v_start, ps_double[li]->v_end, ls[li], threading );      
         sample[i]= tmpx;      
         es[li] += tmpx;
@@ -564,7 +569,6 @@ complex_PRECISION mlmc_hutchinson_diver_PRECISION( level_struct *l, struct Threa
         tmpx =  global_inner_product_float( ps[li]->b, h->mlmc_b1_float, ps[li]->v_start, ps[li]->v_end, ls[li], threading );      
         sample[i]= tmpx;      
         es[li] +=  tmpx;
-        //printf("%f %f\n", CSPLIT(es[li]));
 	  	}
 	   //----------------------------------------------------------------------------------------------
 	   
@@ -587,12 +591,12 @@ complex_PRECISION mlmc_hutchinson_diver_PRECISION( level_struct *l, struct Threa
   }
   
 
-
+  SYNC_MASTER_TO_ALL(threading)
 //-----------------Hutchinson for just coarsest level-----------------       
   li = g.num_levels-1;
   
   START_MASTER(threading)
-  if(g.my_rank==0)printf("LEVEL----------- \t %d  \t %d\n", li, nr_ests[li]);
+  if(g.my_rank==0)printf("LEVEL----------- \t %d  \t ests: %d  \t start: %d  \t end: %d \t vector size: %d \n ", li, nr_ests[li], start, ps[li]->v_end, ls[li]->inner_vector_size);
   END_MASTER(threading)
   
   complex_PRECISION sample[nr_ests[li]]; 
@@ -608,7 +612,7 @@ complex_PRECISION mlmc_hutchinson_diver_PRECISION( level_struct *l, struct Threa
     tmpx= global_inner_product_float( ps[li]->b, ps[li]->x, ps[li]->v_start, ps[li]->v_end, ls[li], threading );   
     sample[i]= tmpx;      
     es[li] += tmpx;
-
+  
     for (j=0; j<i; j++) // compute the variance
       variance += (sample[j]- es[li]/(i+1)) *conj( sample[j]- es[li]/(i+1)); 
     variance /= (j+1);
