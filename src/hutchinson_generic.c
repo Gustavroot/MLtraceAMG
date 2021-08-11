@@ -472,11 +472,11 @@ complex_PRECISION mlmc_hutchinson_diver_PRECISION( level_struct *l, struct Threa
   complex_PRECISION trace=0.0;
 //--------------Setting the tolerance per level----------------
   int i;
-  PRECISION est_tol = 1E-4;
+  PRECISION est_tol = 1E-6;
   PRECISION delta[g.num_levels];
   PRECISION tol[g.num_levels];
   PRECISION d0 = 0.4; 
-  delta[0] = 0.4; tol[0] = sqrt(delta[0]);
+  delta[0] = d0; tol[0] = sqrt(delta[0]);
   for(i=1 ;i<g.num_levels; i++){
     delta[i] = (1.0-d0)/(g.num_levels-1);
     tol[i] = sqrt(delta[i]);
@@ -491,30 +491,34 @@ complex_PRECISION mlmc_hutchinson_diver_PRECISION( level_struct *l, struct Threa
   PRECISION variance=0.0;  
   nr_ests[0]=10000; 
   for(i=1; i< g.num_levels; i++) nr_ests[i] = nr_ests[i-1]*1;
-    
+  
+ 
   gmres_float_struct *ps[g.num_levels]; 
   gmres_double_struct *ps_double[1]; 
   level_struct *ls[g.num_levels];  
   ps_double[0] = &(g.p);
   ls[0] = l;
   level_struct *lx = l->next_level;
-  
+  double buff_tol[g.num_levels];
+  buff_tol[0] =  ps_double[i]->tol; 
+
   START_MASTER(threading)
-  if(g.my_rank==0) printf("LEVEL----------- \t %d  \t vector size: %d \n ", 0, ls[0]->inner_vector_size);
+  if(g.my_rank==0) printf("LEVEL----------- \t %d  \t vector size: %d \t TOLERANCE: %e\n", 0, ls[0]->inner_vector_size, buff_tol[0]);
   END_MASTER(threading)
   SYNC_MASTER_TO_ALL(threading)
   for( i=1;i<g.num_levels;i++ ){
     ps[i] = &(lx->p_float); // p_PRECISION in each level
     ls[i] = lx;                  // level_struct of each level
     lx = lx->next_level;
+    buff_tol[i]= ps[i]->tol;
     SYNC_MASTER_TO_ALL(threading)
     START_MASTER(threading)
-    if(g.my_rank==0) printf("LEVEL----------- \t %d  \t vector size: %d \n ", i, ls[i]->inner_vector_size);
+    if(g.my_rank==0) printf("LEVEL----------- \t %d  \t vector size: %d \tTOLERANCE: %f\n ", i, ls[i]->inner_vector_size, buff_tol[i]);
     END_MASTER(threading)
           
   }
    
-  //exit(0);
+ 
   complex_PRECISION es[g.num_levels];  //An estimate per level
   memset( es,0,g.num_levels*sizeof(complex_PRECISION) );
   complex_PRECISION tmpx =0.0;
@@ -551,9 +555,13 @@ complex_PRECISION mlmc_hutchinson_diver_PRECISION( level_struct *l, struct Threa
       }
       else{
         restrict_float( ps[li+1]->b, ps[li]->b, ls[li], threading ); // get rhs for next level.
+        ps[li+1]->tol = 1e-7;
         fgmres_float( ps[li+1], ls[li+1], threading );               //solve in next level
-        interpolate3_float( h->mlmc_b1_float, ps[li+1]->x, ls[li], threading ); //      
+        ps[li+1]->tol = buff_tol[li+1];
+        interpolate3_float( h->mlmc_b1_float, ps[li+1]->x, ls[li], threading ); //   
+        ps[li]->tol = 1e-7;   
         fgmres_float( ps[li], ls[li], threading );
+        ps[li+1]->tol = buff_tol[li+1];
       }     
       //------------------------------------------------------------------------------------
       
@@ -586,7 +594,6 @@ complex_PRECISION mlmc_hutchinson_diver_PRECISION( level_struct *l, struct Threa
       counter[li]=i+1;
       if(i !=0 && RMSD< cabs(rough_trace)*tol[li]*est_tol){counter[li]=i+1; break;}
       //----------------------------------------------------------------------------------------------    
-		//exit(0);
     }
   }
   
@@ -608,7 +615,9 @@ complex_PRECISION mlmc_hutchinson_diver_PRECISION( level_struct *l, struct Threa
     END_MASTER(threading)
     SYNC_MASTER_TO_ALL(threading)
     
+    ps[li]->tol = 1e-7;
     fgmres_float( ps[li], ls[li], threading );
+    ps[li]->tol = buff_tol[li];
     tmpx= global_inner_product_float( ps[li]->b, ps[li]->x, ps[li]->v_start, ps[li]->v_end, ls[li], threading );   
     sample[i]= tmpx;      
     es[li] += tmpx;
