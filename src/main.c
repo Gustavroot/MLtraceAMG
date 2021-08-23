@@ -116,35 +116,25 @@ int main( int argc, char **argv ) {
     complex_double trace, rtrace;
     struct Thread *threadingx = &threading;
 
-    // 1. get rough trace
-   // l.h_double.nr_levels = 1;
-    //hutchinson_diver_double_init( &l, &threading );
-	  //hutchinson_diver_double_alloc( &l, &threading );
-    //l.h_double.rough_trace[0] = 0.0;
-    //l.h_double.rt = 0.0;
     l.h_double.max_iters = 5;
     l.h_double.min_iters = 5;
+    l.h_double.trace_tol=1e-3;
     rtrace = hutchinson_driver_double( &l, &threading );
-	  //hutchinson_diver_double_free( &l, &threading );
+
 
     // Plain Hutchinson
     // -------------------------------------------------------
     START_MASTER(threadingx)
-    if(g.my_rank==0) printf("Computing trace through plain Hutchinson ...\n");
+    if(g.my_rank==0) printf("Computing trace through PLAIN Hutchinson ...\n");
     END_MASTER(threadingx)
     // number of levels for Plain Hutchinson
-    l.h_double.nr_levels = 1;
-    hutchinson_diver_double_init( &l, &threading );
-	  hutchinson_diver_double_alloc( &l, &threading );
-    // get actual trace
-    //l.h_double.rough_trace[0] = trace;
     l.h_double.rt = rtrace;
-    l.h_double.max_iters = 20;
+    l.h_double.max_iters = 10000;
     l.h_double.min_iters = 5;
     trace = hutchinson_driver_double( &l, &threading );
-	  hutchinson_diver_double_free( &l, &threading );
+    hutchinson_diver_double_free( &l, &threading );
     START_MASTER(threadingx)
-    if(g.my_rank==0) printf("... done\n");
+    if(g.my_rank==0) printf("\n... done\n");
     END_MASTER(threadingx)
     // -------------------------------------------------------
 
@@ -155,23 +145,23 @@ int main( int argc, char **argv ) {
     // MLMC
     // -------------------------------------------------------
     START_MASTER(threadingx)
-    if(g.my_rank==0) printf("Computing trace through MLMC Hutchinson ...\n");
+    if(g.my_rank==0) printf("Computing trace through BLOCK Hutchinson ...\n");
     END_MASTER(threadingx)
     // number of levels for Plain Hutchinson
-    l.h_double.nr_levels = g.num_levels;
-    hutchinson_diver_double_init( &l, &threading );	
-	  hutchinson_diver_double_alloc( &l, &threading );
-	      
+
+    hutchinson_diver_double_init( &l, &threading );  
+    hutchinson_diver_double_alloc( &l, &threading );
+        
     // get actual trace
-    //l->h_double.rough_trace[0] = trace;
     l.h_double.rt = rtrace;
-    l.h_double.max_iters = 20;
+    l.h_double.max_iters = 10000;
     l.h_double.min_iters = 5;
     
     trace = mlmc_hutchinson_diver_double( &l, &threading );
-	  hutchinson_diver_double_free( &l, &threading );
+    hutchinson_diver_double_free( &l, &threading );
+    
     START_MASTER(threadingx)
-    if(g.my_rank==0) printf("... done\n");
+    if(g.my_rank==0) printf("\n... done\n");
     END_MASTER(threadingx)
     // -------------------------------------------------------
 
