@@ -116,6 +116,7 @@ int main( int argc, char **argv ) {
 
     l.h_double.max_iters = 10000; //set Before allocating BLOCK stuff!	    
     l.h_double.block_size =12;   //set Before allocating BLOCK stuff!	
+    l.h_double.trace_tol = 1e-4;
     hutchinson_diver_double_init( &l, &threading );  
 		hutchinson_diver_double_alloc( &l, &threading ); 
     block_hutchinson_driver_double( &l, &threading );

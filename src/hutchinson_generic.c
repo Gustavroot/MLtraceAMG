@@ -122,7 +122,7 @@ complex_PRECISION hutchinson_driver_PRECISION( level_struct *l, struct Thread *t
 void block_hutchinson_PRECISION( level_struct *l, struct Thread *threading , complex_PRECISION* estimate, complex_PRECISION* variance ){
   vector_PRECISION solution = l->h_PRECISION.buffer2; vector_PRECISION* X = l->h_PRECISION.X;
   vector_PRECISION buffer = l->h_PRECISION.block_buffer; vector_PRECISION sample = l->h_PRECISION.sample;
-  complex_PRECISION rough_trace = l->h_PRECISION.rough_trace; complex_PRECISION total_variance = l->h_PRECISION.total_variance;
+  complex_PRECISION rough_trace = l->h_PRECISION.rough_trace;
   complex_PRECISION trace = l->h_PRECISION.trace;
   gmres_PRECISION_struct* p = &(g.p);
   int k, i, j, v, counter=0;
@@ -162,19 +162,21 @@ void block_hutchinson_PRECISION( level_struct *l, struct Thread *threading , com
     
     //-----------------------COMPUTING Total Variation -------------------------
     START_MASTER(threading) 
-    for (v=0; v< block_size*block_size; v++)  total_variance+= variance[v];     
+    for (v=0; v< block_size*block_size; v++)  l->h_PRECISION.total_variance+= variance[v];     
     END_MASTER(threading)
     SYNC_MASTER_TO_ALL(threading)
     //---------------------------------------------------------------------------- 
           
     counter=k;
-    if(k !=0 && sqrt(total_variance)/(k+1) < cabs(rough_trace)*trace_tol && k>=l->h_PRECISION.min_iters-1){ if(k>4) {counter=k; break;} }
+    if(k !=0 && sqrt(l->h_PRECISION.total_variance)/(k+1) < cabs(rough_trace)*trace_tol && k>=l->h_PRECISION.min_iters-1){counter=k; break; }
 
     START_MASTER(threading) 
-    if(g.my_rank==0)printf( "%d \t RMSD  %f < %f ??\t first entry %f \t rough_trace %f\n", k, sqrt(total_variance)/(k+1), cabs(rough_trace)*trace_tol, creal(estimate[0])/(k+1), creal(rough_trace)  );
+    if(g.my_rank==0)
+    printf( "%d \t RMSD  %f < %f ??\t first entry %f \t rough_trace %f\n", k, sqrt(l->h_PRECISION.total_variance)/(k+1), cabs(rough_trace)*trace_tol, creal(estimate[0])/(k+1), creal(rough_trace)  );
     END_MASTER(threading)
- 
-    total_variance=0.0;  //Reset Total Variation
+    SYNC_MASTER_TO_ALL(threading)
+    
+    l->h_PRECISION.total_variance=0.0;  //Reset Total Variation
   } //LOOP Hutchinson
   
   //-----------------------COMPUTING TRACE -------------------------  
@@ -198,11 +200,10 @@ void block_hutchinson_driver_PRECISION( level_struct *l, struct Thread *threadin
   complex_PRECISION variance[l->h_PRECISION.block_size*l->h_PRECISION.block_size] ; 
   memset(estimate, 0, sizeof(estimate));
   memset(variance, 0, sizeof(variance));
-  l->h_PRECISION.max_iters=5; l->h_PRECISION.trace_tol = 1e-3;
+
   l->h_PRECISION.trace=0.0; l->h_PRECISION.rough_trace=0.0;
   l->h_PRECISION.total_variance=0.0; 
-  int nr_ests=l->h_PRECISION.max_iters; 
-  int nr_rough_ests=l->h_PRECISION.max_iters;  
+  
   int i;  
   //TODO: MOVE TO ALLOC???
   //----------- Setting the pointers to each column of X
@@ -211,12 +212,12 @@ void block_hutchinson_driver_PRECISION( level_struct *l, struct Thread *threadin
   END_MASTER(threading)
   SYNC_MASTER_TO_ALL(threading)
 
-  //----------------------------Compute ROUGH BLOCK TRACE----------------------------------------------------  
+  //----------------------------Compute ROUGH block TRACE----------------------------------------------------  
   START_MASTER(threading)
   if(g.my_rank==0)printf("\t------computing ROUGH block trace ----------\n");
   END_MASTER(threading)
 
-  l->h_PRECISION.max_iters = nr_rough_ests;  
+  l->h_PRECISION.max_iters = 5;  
   block_hutchinson_PRECISION(l, threading, estimate, variance);
 
   START_MASTER(threading)
@@ -237,7 +238,7 @@ void block_hutchinson_driver_PRECISION( level_struct *l, struct Thread *threadin
   memset(estimate, 0, sizeof(estimate));
   memset(variance, 0, sizeof(variance));
 
-  l->h_PRECISION.max_iters = nr_ests;
+  l->h_PRECISION.max_iters=1000;
   block_hutchinson_PRECISION(l, threading, estimate, variance);
   
   START_MASTER(threading)
