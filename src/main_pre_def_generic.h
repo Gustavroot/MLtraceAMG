@@ -72,25 +72,25 @@
   } gmres_PRECISION_struct;
   
   typedef struct {
-    vector_PRECISION buffer1;
-    vector_PRECISION buffer2;
+    vector_PRECISION buffer1; //solution
+    vector_PRECISION buffer2;  //source
+    vector_PRECISION block_buffer;
     vector_PRECISION* X;
     vector_PRECISION sample;
-    vector_PRECISION rough_trace;
-    complex_PRECISION trace;
-    vector_PRECISION total_variance;
-    complex_PRECISION rt;
+       
+    complex_PRECISION rough_trace;
+    complex_PRECISION total_variance;
     
     vector_PRECISION mlmc_b1;
     vector_float mlmc_b1_float;
-    vector_PRECISION mlmc_rough_ests;
     
-    
-    int nr_rough_ests, nr_ests, block_size, buffer_int1;
+    complex_PRECISION rt;
+    complex_PRECISION trace;
+       
+    int nr_rough_ests, block_size;
     int max_iters, min_iters;
     
     PRECISION trace_tol;
-    int nr_levels;
     
   } hutchinson_PRECISION_struct;
   

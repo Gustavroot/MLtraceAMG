@@ -112,36 +112,45 @@ int main( int argc, char **argv ) {
     method_setup( NULL, &l, &threading );
     // iterative phase
     method_update( l.setup_iter, &l, &threading );
+	
 
-    complex_double trace, rtrace;
+    l.h_double.max_iters = 10000; //set Before allocating BLOCK stuff!	    
+    l.h_double.block_size =12;   //set Before allocating BLOCK stuff!	
+    hutchinson_diver_double_init( &l, &threading );  
+		hutchinson_diver_double_alloc( &l, &threading ); 
+    block_hutchinson_driver_double( &l, &threading );
+    hutchinson_diver_double_free( &l, &threading );
+   /* complex_double trace, rtrace;
     struct Thread *threadingx = &threading;
 
     l.h_double.max_iters = 5;
     l.h_double.min_iters = 5;
     l.h_double.trace_tol=1e-3;
+    
+    hutchinson_diver_double_init( &l, &threading );  
+    hutchinson_diver_double_alloc( &l, &threading );
     rtrace = hutchinson_driver_double( &l, &threading );
 
 
     // Plain Hutchinson
     // -------------------------------------------------------
     START_MASTER(threadingx)
-    if(g.my_rank==0) printf("Computing trace through PLAIN Hutchinson ...\n");
+    if(g.my_rank==0) printf("Computing ROUGH trace through PLAIN Hutchinson ...\n");
     END_MASTER(threadingx)
+     
     // number of levels for Plain Hutchinson
     l.h_double.rt = rtrace;
     l.h_double.max_iters = 10000;
     l.h_double.min_iters = 5;
     trace = hutchinson_driver_double( &l, &threading );
-    hutchinson_diver_double_free( &l, &threading );
+    //hutchinson_diver_double_free( &l, &threading );
+    
     START_MASTER(threadingx)
     if(g.my_rank==0) printf("\n... done\n");
     END_MASTER(threadingx)
     // -------------------------------------------------------
 
-    START_MASTER(threadingx)
-    if(g.my_rank==0) printf("\n");
-    END_MASTER(threadingx)
-
+   
     // MLMC
     // -------------------------------------------------------
     START_MASTER(threadingx)
@@ -149,8 +158,7 @@ int main( int argc, char **argv ) {
     END_MASTER(threadingx)
     // number of levels for Plain Hutchinson
 
-    hutchinson_diver_double_init( &l, &threading );  
-    hutchinson_diver_double_alloc( &l, &threading );
+    
         
     // get actual trace
     l.h_double.rt = rtrace;
@@ -166,6 +174,7 @@ int main( int argc, char **argv ) {
     // -------------------------------------------------------
 
     //block_hutchinson_driver_double
+    */
   }
 
   finalize_common_thread_data(commonthreaddata);
