@@ -319,14 +319,10 @@ void hutchinson_diver_PRECISION_init( level_struct *l, struct Thread *threading 
   
 //BLOCK  
   h->block_buffer = NULL;
-  h->X = NULL;          	
-  //h->X[0]  = NULL;
+  h->X = NULL;            
   h->sample  = NULL;
    
   SYNC_MASTER_TO_ALL(threading)
-  //h->rough_trace = NULL;
-
-
 }
 
 void hutchinson_diver_PRECISION_alloc( level_struct *l, struct Thread *threading ) {
@@ -414,17 +410,17 @@ complex_PRECISION mlmc_hutchinson_diver_PRECISION( level_struct *l, struct Threa
   PRECISION RMSD;
   PRECISION variance=0.0;  
   nr_ests[0]=l->h_PRECISION.max_iters; 
-  for(i=1; i< g.num_levels; i++) nr_ests[i] = nr_ests[i-1]*1;
+  for(i=1; i< g.num_levels; i++) nr_ests[i] = nr_ests[i-1]*1; //TODO: Change in every level?
   
-  gmres_float_struct *ps[g.num_levels]; 
-  gmres_double_struct *ps_double[1]; 
+  gmres_float_struct *ps[g.num_levels]; //float p_structs for coarser levels
+  gmres_double_struct *ps_double[1];   //double p_struct for finest level
   level_struct *ls[g.num_levels];  
   ps_double[0] = &(g.p);
   ls[0] = l;
+  
   level_struct *lx = l->next_level;
   double buff_tol[g.num_levels];
   buff_tol[0] =  ps_double[i]->tol; 
-
   START_MASTER(threading)
   if(g.my_rank==0) printf("LEVEL----------- \t %d  \t vector size: %d \t TOLERANCE: %e\n", 0, ls[0]->inner_vector_size, buff_tol[0]);
   END_MASTER(threading)
