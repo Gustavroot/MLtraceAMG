@@ -83,6 +83,7 @@
     
     vector_PRECISION mlmc_b1;
     vector_float mlmc_b1_float;
+    vector_float* X_float;
     
     complex_PRECISION rt;
     complex_PRECISION trace;
