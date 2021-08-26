@@ -172,10 +172,12 @@ int main( int argc, char **argv ) {
  
     // get actual trace
     l.h_double.rt = rtrace;
-    l.h_double.max_iters = 10000;
+    l.h_double.max_iters = 1; //10000;
     l.h_double.min_iters = 5;
     l.h_double.trace_tol=1e-6;     
-    trace = mlmc_hutchinson_diver_double( &l, &threading );
+    //trace = mlmc_hutchinson_diver_double( &l, &threading );
+    trace = mlmc_block_hutchinson_diver_double( &l, &threading );
+    //block_hutchinson_driver_double( &l, &threading );
     hutchinson_diver_double_free( &l, &threading );
     
     START_MASTER(threadingx)
