@@ -172,7 +172,7 @@ int main( int argc, char **argv ) {
  
     // get actual trace
     l.h_double.rt = rtrace;
-    l.h_double.max_iters = 1; //10000;
+    l.h_double.max_iters = 5; //10000;
     l.h_double.min_iters = 5;
     l.h_double.trace_tol=1e-6;     
     //trace = mlmc_hutchinson_diver_double( &l, &threading );
