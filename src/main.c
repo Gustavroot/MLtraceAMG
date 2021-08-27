@@ -122,13 +122,9 @@ int main( int argc, char **argv ) {
     struct Thread *threadingx = &threading;  
     
     
-     // BLOCK Hutchinson
-    /*
+     // BLOCK Hutchinson  
     l.h_double.trace_tol = 1e-4;
-    hutchinson_diver_double_init( &l, &threading );  
-    hutchinson_diver_double_alloc( &l, &threading ); 
     block_hutchinson_driver_double( &l, &threading );
-    hutchinson_diver_double_free( &l, &threading );*/
     
     
     // ------------ROUGH with Plain-------------------------------------------
@@ -172,7 +168,7 @@ int main( int argc, char **argv ) {
  
     // get actual trace
     l.h_double.rt = rtrace;
-    l.h_double.max_iters = 5; //10000;
+    l.h_double.max_iters = 100; //10000;
     l.h_double.min_iters = 5;
     l.h_double.trace_tol=1e-6;     
     //trace = mlmc_hutchinson_diver_double( &l, &threading );

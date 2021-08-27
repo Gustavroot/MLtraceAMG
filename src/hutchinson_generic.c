@@ -707,7 +707,7 @@ complex_PRECISION mlmc_block_hutchinson_diver_PRECISION( level_struct *l, struct
         //---------------------- Fill Big X----------------------------------------------      
 		    for(col=0; col<block_size; col++)
 		      for(row=col; row<ls[li]->inner_vector_size; row+=block_size)
-		        X[col][row] = ps_double[li]->b[row/12];       
+		        X[col][row] = ps_double[li]->b[row/12];	        		    
       }
       else{
         vector_float_define_random_rademacher( ps[li]->b, 0, ls[li]->inner_vector_size/block_size, ls[li] );
@@ -727,7 +727,10 @@ complex_PRECISION mlmc_block_hutchinson_diver_PRECISION( level_struct *l, struct
 		      fgmres_float( ps[li+1], ls[li+1], threading );               //solve in next level
 		      interpolate3_float( l->sbuf_float[1], ps[li+1]->x, ls[li], threading ); //      
 		      trans_back_float( h->mlmc_b1, l->sbuf_float[1], l->s_float.op.translation_table, l, threading ); //solution of next level in double
-		      fgmres_double( ps_double[li], ls[li], threading ); //TODO: copy content of X to ps_double[li]->b   
+		      
+		      vector_double_copy( ps_double[li]->b, X[col], ps_double[li]->v_start, ps_double[li]->v_end, l );
+		      
+		      fgmres_double( ps_double[li], ls[li], threading );   
 		    }     
 				else{
 				  restrict_float( ps[li+1]->b, X_float[col], ls[li], threading ); // get rhs for next level.
@@ -736,7 +739,10 @@ complex_PRECISION mlmc_block_hutchinson_diver_PRECISION( level_struct *l, struct
 				  ps[li+1]->tol = buff_tol[li+1];
 				  interpolate3_float( h->mlmc_b1_float, ps[li+1]->x, ls[li], threading ); // interpolate solution
 				  ps[li]->tol = 1e-7;   
-				  fgmres_float( ps[li], ls[li], threading ); //TODO: copy content of X to ps[li]->b 
+				  
+				  vector_float_copy( ps[li]->b, X_float[col], ps[li]->v_start, ps[li]->v_end, l );
+				  
+				  fgmres_float( ps[li], ls[li], threading ); 
 				  ps[li+1]->tol = buff_tol[li+1];
 				}
     
@@ -813,7 +819,8 @@ complex_PRECISION mlmc_block_hutchinson_diver_PRECISION( level_struct *l, struct
     SYNC_MASTER_TO_ALL(threading)
     for(col=0; col<block_size; col++){   
 		  ps[li]->tol = 1e-7;
-		  fgmres_float( ps[li], ls[li], threading ); //TODO: copy content of X to ps[li]->b 
+		  vector_float_copy( ps[li]->b, X_float[col], ps[li]->v_start, ps[li]->v_end, l );
+		  fgmres_float( ps[li], ls[li], threading );
 		  ps[li]->tol = buff_tol[li];
 		  for(row=0; row<block_size; row++){                         
 				tmpx= global_inner_product_float( X_float[row], ps[li]->x, ps[li]->v_start, ps[li]->v_end, ls[li], threading );   
