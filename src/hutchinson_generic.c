@@ -82,7 +82,7 @@ complex_PRECISION hutchinson_driver_PRECISION( level_struct *l, struct Thread *t
   PRECISION RMSD = 0.0;
   rough_trace = l->h_PRECISION.rt;
   
-  aux=0.0; 
+  aux=0.0;  
   gmres_PRECISION_struct* p = &(g.p); //g accesesible from any func.  
   for( i=0; i<nr_ests  ; i++ ) {
 
@@ -166,15 +166,15 @@ void block_hutchinson_PRECISION( level_struct *l, struct Thread *threading , com
     END_MASTER(threading)
     SYNC_MASTER_TO_ALL(threading)
     //---------------------------------------------------------------------------- 
-          
+    PRECISION RMSD = sqrt(l->h_PRECISION.total_variance)/(k+1);
     counter=k;
-    if(k !=0 && sqrt(l->h_PRECISION.total_variance)/(k+1) < cabs(rough_trace)*trace_tol && k>=l->h_PRECISION.min_iters-1){counter=k; break; }
+    if(k !=0 && RMSD < cabs(rough_trace)*trace_tol ){counter=k; break; }
 
-   /* START_MASTER(threading) 
+    /*START_MASTER(threading) 
     if(g.my_rank==0)
-    printf( "%d \t RMSD  %f < %f ??\t first entry %f \t rough_trace %f\n", k, sqrt(l->h_PRECISION.total_variance)/(k+1), cabs(rough_trace)*trace_tol, creal(estimate[0])/(k+1), creal(rough_trace)  );
-    END_MASTER(threading)*/
-    SYNC_MASTER_TO_ALL(threading)
+    printf( "%d \t RMSD  %f < %f ??\t first entry %f \t rough_trace %f\n", k, RMSD, cabs(rough_trace)*trace_tol, creal(estimate[0])/(k+1), creal(rough_trace)  );
+    END_MASTER(threading)
+    SYNC_MASTER_TO_ALL(threading)*/
     
     l->h_PRECISION.total_variance=0.0;  //Reset Total Variation
   } //LOOP Hutchinson
@@ -344,7 +344,7 @@ void hutchinson_diver_PRECISION_alloc( level_struct *l, struct Thread *threading
   MALLOC( h->X[0], complex_PRECISION, h->block_size* l->inner_vector_size);
   MALLOC( h->sample, complex_PRECISION, h->block_size*h->block_size*h->max_iters);
   ((vector_PRECISION *)threading->workspace)[4] = h->block_buffer;
-  ((vector_PRECISION **)threading->workspace)[5] = h->X;	
+  ((vector_PRECISION **)threading->workspace)[5] = h->X;  
   ((vector_PRECISION *)threading->workspace)[6] = h->X[0];
   ((vector_PRECISION *)threading->workspace)[7] = h->sample;
 
@@ -366,8 +366,8 @@ void hutchinson_diver_PRECISION_alloc( level_struct *l, struct Thread *threading
   h->sample = ((vector_PRECISION *)threading->workspace)[7] ;
   h->X_float = ((vector_float **)threading->workspace)[8] ; //for mlmc
   h->X_float[0] = ((vector_float *)threading->workspace)[9] ; //for mlmc
-	  
-  //TODO: MOVE TO ALLOC???
+    
+
   //----------- Setting the pointers to each column of X
   START_MASTER(threading)
   for(int i=0; i<l->h_PRECISION.block_size; i++)  l->h_PRECISION.X[i] = l->h_PRECISION.X[0]+i*l->inner_vector_size;
@@ -694,7 +694,7 @@ complex_PRECISION mlmc_block_hutchinson_diver_PRECISION( level_struct *l, struct
 
 //-----------------Hutchinson for all but coarsest level-----------------    
   for( li=0;li<(g.num_levels-1);li++ ){         
-    counter[li]=0;       
+    counter[li]=0;       l->h_PRECISION.total_variance=0.0;
     compute_core_start_end( 0, ls[li]->inner_vector_size, &start, &end, l, threading );
     
     START_MASTER(threading)
@@ -706,51 +706,51 @@ complex_PRECISION mlmc_block_hutchinson_diver_PRECISION( level_struct *l, struct
       if(li==0){
         vector_double_define_random_rademacher( ps_double[li]->b, 0, ls[li]->inner_vector_size/block_size, ls[li] );
         //---------------------- Fill Big X----------------------------------------------      
-		    for(col=0; col<block_size; col++)
-		      for(row=col; row<ls[li]->inner_vector_size; row+=block_size)
-		        X[col][row] = ps_double[li]->b[row/12];	        		    
+        for(col=0; col<block_size; col++)
+          for(row=col; row<ls[li]->inner_vector_size; row+=block_size)
+            X[col][row] = ps_double[li]->b[row/12];                  
       }
       else{
         vector_float_define_random_rademacher( ps[li]->b, 0, ls[li]->inner_vector_size/block_size, ls[li] );
         //---------------------- Fill Big X----------------------------------------------      
-		    for(col=0; col<block_size; col++)
-		      for(row=col; row<ls[li]->inner_vector_size; row+=block_size)
-		        X_float[col][row] = ps[li]->b[row/12];    
+        for(col=0; col<block_size; col++)
+          for(row=col; row<ls[li]->inner_vector_size; row+=block_size)
+            X_float[col][row] = ps[li]->b[row/12];    
       }    
       END_MASTER(threading)
       SYNC_MASTER_TO_ALL(threading)
-			
+      
       //-----------------Solve the system in current level and the next one-----------------
       for(col=0; col<block_size; col++){
-		    if(li==0){
-		      trans_float( l->sbuf_float[0], X[col], l->s_float.op.translation_table, l, threading );    		      
-		      restrict_float( ps[li+1]->b, l->sbuf_float[0], ls[li], threading ); // get rhs for next level.
-		      fgmres_float( ps[li+1], ls[li+1], threading );               //solve in next level
-		      interpolate3_float( l->sbuf_float[1], ps[li+1]->x, ls[li], threading ); //      
-		      trans_back_float( h->mlmc_b1, l->sbuf_float[1], l->s_float.op.translation_table, l, threading ); //solution of next level in double
-		      
-		      vector_double_copy( ps_double[li]->b, X[col], ps_double[li]->v_start, ps_double[li]->v_end, l ); //Necesary for fgmres
-		      
-		      fgmres_double( ps_double[li], ls[li], threading );   
-		    }     
-				else{
-				  restrict_float( ps[li+1]->b, X_float[col], ls[li], threading ); // get rhs for next level. 
-				  ps[li+1]->tol = 1e-7;
-				  SYNC_MASTER_TO_ALL(threading)
-				  fgmres_float( ps[li+1], ls[li+1], threading );               //solve in next level
+        if(li==0){
+          trans_float( l->sbuf_float[0], X[col], l->s_float.op.translation_table, l, threading );              
+          restrict_float( ps[li+1]->b, l->sbuf_float[0], ls[li], threading ); // get rhs for next level.
+          fgmres_float( ps[li+1], ls[li+1], threading );               //solve in next level
+          interpolate3_float( l->sbuf_float[1], ps[li+1]->x, ls[li], threading ); //      
+          trans_back_float( h->mlmc_b1, l->sbuf_float[1], l->s_float.op.translation_table, l, threading ); //solution of next level in double
+          
+          vector_double_copy( ps_double[li]->b, X[col], ps_double[li]->v_start, ps_double[li]->v_end, l ); //Necesary for fgmres
+          
+          fgmres_double( ps_double[li], ls[li], threading );   
+        }     
+        else{
+          restrict_float( ps[li+1]->b, X_float[col], ls[li], threading ); // get rhs for next level. 
+          ps[li+1]->tol = 1e-7;
+          SYNC_MASTER_TO_ALL(threading)
+          fgmres_float( ps[li+1], ls[li+1], threading );               //solve in next level
 
-				  START_MASTER(threading)
+          START_MASTER(threading)
           //if(g.my_rank==0) printf("\n\t HERE! \n"); //TODO: sometimes a segmentation fault is somewhere here
           END_MASTER(threading)
-				  ps[li+1]->tol = buff_tol[li+1];
-				  interpolate3_float( h->mlmc_b1_float, ps[li+1]->x, ls[li], threading ); // interpolate solution
-				  ps[li]->tol = 1e-7;   
-				  
-				  vector_float_copy( ps[li]->b, X_float[col], ps[li]->v_start, ps[li]->v_end, l );
-				  
-				  fgmres_float( ps[li], ls[li], threading ); 
-				  ps[li+1]->tol = buff_tol[li+1];
-				}
+          ps[li+1]->tol = buff_tol[li+1];
+          interpolate3_float( h->mlmc_b1_float, ps[li+1]->x, ls[li], threading ); // interpolate solution
+          ps[li]->tol = 1e-7;   
+          
+          vector_float_copy( ps[li]->b, X_float[col], ps[li]->v_start, ps[li]->v_end, ls[li] );
+          
+          fgmres_float( ps[li], ls[li], threading ); 
+          ps[li+1]->tol = buff_tol[li+1];
+        }
     
       //------------------------------------------------------------------------------------
       
@@ -763,137 +763,106 @@ complex_PRECISION mlmc_block_hutchinson_diver_PRECISION( level_struct *l, struct
       }
       //--------------Get the samples--------------  
       for(row=0; row<block_size; row++){                         
-		    if(li==0){     
-		      tmpx = global_inner_product_PRECISION( X[row], h->mlmc_b1, ps_double[li]->v_start, ps_double[li]->v_end, ls[li], threading );      
-		    }
-		    else{
-		      tmpx =  global_inner_product_float(X_float[row], h->mlmc_b1_float, ps[li]->v_start, ps[li]->v_end, ls[li], threading );      
-		    }
+        if(li==0){     
+          tmpx = global_inner_product_PRECISION( X[row], h->mlmc_b1, ps_double[li]->v_start, ps_double[li]->v_end, ls[li], threading );      
+        }
+        else{
+          tmpx =  global_inner_product_float(X_float[row], h->mlmc_b1_float, ps[li]->v_start, ps[li]->v_end, ls[li], threading );      
+        }
 
-		    START_MASTER(threading)
-		    sample[col+row*block_size+ i*block_size*block_size ] = tmpx;
-		    es[li][col+row*block_size] += tmpx;
-		    
-		    for (v=0; v<i; v++)  //compute the variance for the (i,j) element in the BT     
+        START_MASTER(threading)
+        sample[col+row*block_size+ i*block_size*block_size ] = tmpx;
+        es[li][col+row*block_size] += tmpx;
+        
+        for (v=0; v<i; v++)  //compute the variance for the (i,j) element in the BT     
           variance[li][col+row*block_size] += (  sample[col+row*block_size+ v*block_size*block_size ]- es[li][col+row*block_size]/(i+1)  )*conj(  sample[col+row*block_size+ v*block_size*block_size ]- es[li][col+row*block_size]/(i+1) ); 
-		    
-		    variance[li][col+row*block_size] /= (v+1);
-		    
-				END_MASTER(threading)      
-		    SYNC_MASTER_TO_ALL(threading)     
+        
+        variance[li][col+row*block_size] /= (v+1);
+        
+        END_MASTER(threading)      
+        SYNC_MASTER_TO_ALL(threading)     
       }//loop for row 
  
-    }//loop for col          
-   }//temporal for i
+    }//loop for col    
+    
+     //--------------Get the TOTAL VARIATION in the current level and use it in stop criteria---------------                              
+    START_MASTER(threading) 
+    for (v=0; v< block_size*block_size; v++)  l->h_PRECISION.total_variance+= variance[li][v];     
+    END_MASTER(threading)
+    SYNC_MASTER_TO_ALL(threading)
+    
+    PRECISION RMSD = sqrt(l->h_PRECISION.total_variance)/(i+1);
+    counter[li]=i+1;
    
-		/*//temporal printing
-		START_MASTER(threading)
-		for(row=0; row<block_size; row++){  
-			for (col=0; col< block_size; col++){
-				if(g.my_rank==0) printf( "%f\t", cabs(es[li][col+row*block_size] )/ l->h_double.max_iters);   
-			} 
-			if(g.my_rank==0) printf( "\n");   
-		}
-		END_MASTER(threading)*/
+   START_MASTER(threading) 
+   if(g.my_rank==0)
+   printf( "%d \t First var %f \t First Est %f  \t RMSD %f <  %f ?? \n ", i, creal(variance[li][0]), creal( es[li][0]/(i+1) ), RMSD,  cabs(rough_trace)*tol[li]*est_tol );
+   END_MASTER(threading)
+   SYNC_MASTER_TO_ALL(threading)
    
- }//temporal for li
-      /*     
-     //----------------------------------------------------------------------------------------------
-     
-     //--------------Get the Variance in the current level and use it in stop criteria---------------                              
-      RMSD = sqrt(variance/(j+1)); //RMSD= sqrt(var+ bias²)
-     
-      START_MASTER(threading)
-      if(g.my_rank==0)
-      printf( "%d \t var %f \t Est %f  \t RMSD %f <  %f ?? \n ", i, variance, creal( es[li]/(i+1) ), RMSD,  cabs(rough_trace)*tol[li]*est_tol );
-      END_MASTER(threading)
-           
-      counter[li]=i+1;
-      if(i !=0 && RMSD< cabs(rough_trace)*tol[li]*est_tol && i>=l->h_PRECISION.min_iters-1){counter[li]=i+1; break;}
-      //----------------------------------------------------------------------------------------------    
-    }
-  }
-*/  
+    if(i !=0 && RMSD< cabs(rough_trace)*tol[li]*est_tol && i>=l->h_PRECISION.min_iters-1){counter[li]=i+1; break;}
+    
+   //----------------------------------------------------------------------------------------------    
+   }// for i
+   
+ }// for li    
 
   SYNC_MASTER_TO_ALL(threading)
 //-----------------Hutchinson for just coarsest level-----------------       
-  li = g.num_levels-1;
-  
+  li = g.num_levels-1; 
+  counter[li]=0; l->h_PRECISION.total_variance=0.0;
   START_MASTER(threading)
   if(g.my_rank==0)printf("LEVEL----------- \t %d  \t ests: %d  \t start: %d  \t end: %d \t vector size: %d \n\n ", li, nr_ests[li], start, ps[li]->v_end, ls[li]->inner_vector_size);
   END_MASTER(threading)
-
-  counter[li]=0;
+  SYNC_MASTER_TO_ALL(threading)
+  
   for(i=0;i<nr_ests[li]  ; i++){
     START_MASTER(threading)
-    vector_float_define_random_rademacher( ps[li]->b, 0, ls[li]->inner_vector_size, ls[li] );          
+    vector_float_define_random_rademacher( ps[li]->b, 0, ls[li]->inner_vector_size/block_size, ls[li] );
     //---------------------- Fill Big X----------------------------------------------      
     for(col=0; col<block_size; col++)
-		    for(row=col; row<ls[li]->inner_vector_size; row+=block_size)
-		         ls[0]->h_double.X[col][row] = ps[li]->b[row/12];    
+      for(row=col; row<ls[li]->inner_vector_size; row+=block_size)
+        X_float[col][row] = ps[li]->b[row/12];                        
     END_MASTER(threading)
     SYNC_MASTER_TO_ALL(threading)
     for(col=0; col<block_size; col++){   
-		  ps[li]->tol = 1e-7;
-		  vector_float_copy( ps[li]->b, X_float[col], ps[li]->v_start, ps[li]->v_end, l );
-		  fgmres_float( ps[li], ls[li], threading );
-		  ps[li]->tol = buff_tol[li];
-		  for(row=0; row<block_size; row++){                         
-				tmpx= global_inner_product_float( X_float[row], ps[li]->x, ps[li]->v_start, ps[li]->v_end, ls[li], threading );   
-				START_MASTER(threading)
-		    sample[col+row*block_size+ i*block_size*block_size ] = tmpx;
-		    es[li][col+row*block_size] += tmpx;
-		    
-		    for (v=0; v<i; v++)  //compute the variance for the (i,j) element in the BT     
-          variance[li][col+row*block_size] += (  sample[col+row*block_size+ v*block_size*block_size ]- es[li][col+row*block_size]/(i+1)  )*conj(  sample[col+row*block_size+ v*block_size*block_size ]- es[li][col+row*block_size]/(i+1) ); 
-		    
-		    variance[li][col+row*block_size] /= (v+1);
-		    
-				END_MASTER(threading)      
-		    SYNC_MASTER_TO_ALL(threading)  
-		  }//loop for row
-	  }//loop for col
-	/*
-  }//temporal bra for i loop
- 
-    RMSD = sqrt(variance/(j+1)); //RMSD= sqrt(var+ bias²)
+      ps[li]->tol = 1e-7;
+      vector_float_copy( ps[li]->b, X_float[col], ps[li]->v_start, ps[li]->v_end, ls[li] );
+      fgmres_float( ps[li], ls[li], threading );
+      ps[li]->tol = buff_tol[li];
+      for(row=0; row<block_size; row++){                         
+        tmpx= global_inner_product_float( X_float[row], ps[li]->x, ps[li]->v_start, ps[li]->v_end, ls[li], threading );   
         
-    START_MASTER(threading)
-    if(g.my_rank==0)
-      printf( "%d \t var %f \t Est %f  \t RMSD %f <  %f ?? \n ", i, variance, creal( es[li]/(i+1) ), RMSD,  cabs(rough_trace)*tol[li]*est_tol );
+        START_MASTER(threading)
+        sample[col+row*block_size+ i*block_size*block_size ] = tmpx;
+        es[li][col+row*block_size] += tmpx;
+
+        for (v=0; v<i; v++)  //compute the variance for the (i,j) element in the BT     
+          variance[li][col+row*block_size] += (  sample[col+row*block_size+ v*block_size*block_size ]- es[li][col+row*block_size]/(i+1)  )*conj(  sample[col+row*block_size+ v*block_size*block_size ]- es[li][col+row*block_size]/(i+1) ); 
+        
+        variance[li][col+row*block_size] /= (v+1);
+
+        END_MASTER(threading)      
+        SYNC_MASTER_TO_ALL(threading)  
+      }//loop for row
+    }//loop for col
+       
+    //--------------Get the TOTAL VARIATION in the current level and use it in stop criteria---------------                                
+    START_MASTER(threading) 
+    for (v=0; v< block_size*block_size; v++)  l->h_PRECISION.total_variance+= variance[li][v];     
     END_MASTER(threading)
-    
+    SYNC_MASTER_TO_ALL(threading)
+    PRECISION RMSD = sqrt(l->h_PRECISION.total_variance)/(i+1);  
     counter[li]=i+1;
-    if(i !=0 && RMSD< cabs(rough_trace)*tol[li]*est_tol && i>=l->h_PRECISION.min_iters-1 ){counter[li]=i+1; break;}
-  }
+   
+    /*START_MASTER(threading)
+    if(g.my_rank==0)
+    printf( "%d \t var %f \t First Est %f  \t RMSD %f <  %f ?? \n ", i, creal(l->h_PRECISION.total_variance), creal( es[li][0]/(i+1) ), RMSD,  cabs(rough_trace)*tol[li]*est_tol );
+    END_MASTER(threading)*/
+   
+    if(i !=0 && RMSD< cabs(rough_trace)*tol[li]*est_tol && i>=l->h_PRECISION.min_iters-1){counter[li]=i+1; break;}
 
-
-  trace = 0.0;
-  for( i=0;i<g.num_levels;i++ ){
-    trace += es[i]/counter[i];    
-  START_MASTER(threading)
-  if(g.my_rank==0)printf("Level:%d, ................................%f    %d\n", i, creal(es[i]),counter[i]);
-  END_MASTER(threading)  
-
-  }
-*/
-	
-    
-
-
-
-}//temporal for i//
-
-	//temporal printing
-	/*	START_MASTER(threading)
-		for(col=0; col<block_size; col++){  
-			for (row=0; row< block_size; row++){
-				if(g.my_rank==0) printf( "%f\t", cabs(es[li][col+row*block_size] )/ l->h_double.max_iters);   
-			} 
-			if(g.my_rank==0) printf( "\n");   
-		}
-		if(g.my_rank==0) printf( "\n");  
-		END_MASTER(threading)*/
+  }//for i//
 
 
   START_MASTER(threading)
@@ -902,35 +871,31 @@ complex_PRECISION mlmc_block_hutchinson_diver_PRECISION( level_struct *l, struct
   memset( block_trace   ,0, sizeof(complex_PRECISION)*block_size*block_size );
   memset( block_variance,0, sizeof(complex_PRECISION)*block_size*block_size );
   //gathering the BLOCK estimates per level:
-	for( li=0;li<(g.num_levels);li++ ){
-		for(j=0; j<block_size; j++){  
-		  for (i=0; i< block_size; i++){
-		    block_trace   [j+i*block_size] +=       es[li][j+i*block_size];
-		    block_variance[j+i*block_size] += variance[li][j+i*block_size];
-		    
-       // if(g.my_rank==0) printf("\n\t HERE! li=%d, j=%d, i=%d \n", li, col, row); 
-       
-		  }
-		}
-	}
-	//temporal printing
-	if(g.my_rank==0) printf( "\n\n------------------------- BLOCK TRACE-----------------\n");   
-	for(j=0; j<block_size; j++){  
-		for (i=0; i< block_size; i++){
-		  if(g.my_rank==0) printf( "%f\t", cabs( block_trace[j+i*block_size] )/ l->h_double.max_iters); 
-		  if(i==j) trace += block_trace[j+i*block_size]/ l->h_double.max_iters;
-		} 
-		if(g.my_rank==0) printf( "\n");   
+  for( li=0;li<(g.num_levels);li++ ){
+    for(j=0; j<block_size; j++){  
+      for (i=0; i< block_size; i++){
+        block_trace   [j+i*block_size] +=       es[li][j+i*block_size]/ counter[li];
+        block_variance[j+i*block_size] += variance[li][j+i*block_size];     
+      }
+    }
+  }
+  //temporal printing
+  if(g.my_rank==0) printf( "\n\n------------------------- BLOCK TRACE-----------------\n");   
+  for(j=0; j<block_size; j++){  
+    for (i=0; i< block_size; i++){
+      if(g.my_rank==0) printf( "%f\t", cabs( block_trace[j+i*block_size] )); 
+      if(i==j) trace += block_trace[j+i*block_size];
+    } 
+    if(g.my_rank==0) printf( "\n");   
   }
   
   //temporal printing
-	if(g.my_rank==0) printf( "\n\n------------------------- BLOCK Variance-----------------\n");   
-	for(j=0; j<block_size; j++){  
-		for (i=0; i< block_size; i++){
-		  if(g.my_rank==0) printf( "%f\t", cabs( block_variance[j+i*block_size] ));  
-		  if(i==j) trace += block_trace[j+i*block_size]/ l->h_double.max_iters;
-		} 
-		if(g.my_rank==0) printf( "\n");   
+  if(g.my_rank==0) printf( "\n\n------------------------- BLOCK Variance-----------------\n");   
+  for(j=0; j<block_size; j++){  
+    for (i=0; i< block_size; i++){
+      if(g.my_rank==0) printf( "%f\t", cabs( block_variance[j+i*block_size] ));  
+    } 
+    if(g.my_rank==0) printf( "\n");   
   }
   
   END_MASTER(threading)
