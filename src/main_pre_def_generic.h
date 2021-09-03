@@ -79,7 +79,7 @@
     vector_PRECISION sample;
        
     complex_PRECISION rough_trace;
-    complex_PRECISION total_variance;
+    PRECISION total_variance;
     
     vector_PRECISION mlmc_b1;
     vector_float mlmc_b1_float;

@@ -53,7 +53,7 @@ void rhs_define_PRECISION( vector_PRECISION rhs, level_struct *l, struct Thread 
   }
 }
 
-void solve_PRECISION( vector_PRECISION solution, vector_PRECISION source, level_struct *l, struct Thread *threading, complex_PRECISION rt ){
+void solve_PRECISION( vector_PRECISION solution, vector_PRECISION source, level_struct *l, struct Thread *threading ){
 
   int iter = 0, start = threading->start_index[l->depth], end = threading->end_index[l->depth];
 
@@ -82,7 +82,6 @@ complex_PRECISION hutchinson_driver_PRECISION( level_struct *l, struct Thread *t
   PRECISION RMSD = 0.0;
   rough_trace = l->h_PRECISION.rt;
   
-  aux=0.0;  
   gmres_PRECISION_struct* p = &(g.p); //g accesesible from any func.  
   for( i=0; i<nr_ests  ; i++ ) {
 
@@ -90,7 +89,7 @@ complex_PRECISION hutchinson_driver_PRECISION( level_struct *l, struct Thread *t
     rhs_define_PRECISION( source, l, threading );
     g.if_rademacher = 0;
 
-    solve_PRECISION( solution, source, l, threading, rough_trace ); //get A⁻¹x
+    solve_PRECISION( solution, source, l, threading ); //get A⁻¹x
 
     sample[i] = global_inner_product_PRECISION( source, solution, p->v_start, p->v_end, l, threading ); //compute x'A⁻¹x
 
@@ -111,7 +110,7 @@ complex_PRECISION hutchinson_driver_PRECISION( level_struct *l, struct Thread *t
   }
   
   START_MASTER(threading)
-  if(g.my_rank==0 && rough_trace!=0) printf( "\ntrace result = %f+i%f  for %d samples \n ",CSPLIT(trace), i );
+  if(g.my_rank==0 && rough_trace!=0) printf( "\ntrace result = %f+i%f  using %d estimates \n ",CSPLIT(trace), i );
   END_MASTER(threading)
   SYNC_MASTER_TO_ALL(threading)
   
@@ -119,7 +118,7 @@ complex_PRECISION hutchinson_driver_PRECISION( level_struct *l, struct Thread *t
 }
 
 
-void block_hutchinson_PRECISION( level_struct *l, struct Thread *threading , complex_PRECISION* estimate, complex_PRECISION* variance ){
+void block_hutchinson_PRECISION( level_struct *l, struct Thread *threading , complex_PRECISION* estimate, PRECISION* variance ){
   vector_PRECISION solution = l->h_PRECISION.buffer2; vector_PRECISION* X = l->h_PRECISION.X;
   vector_PRECISION buffer = l->h_PRECISION.block_buffer; vector_PRECISION sample = l->h_PRECISION.sample;
   complex_PRECISION rough_trace = l->h_PRECISION.rough_trace;
@@ -143,13 +142,13 @@ void block_hutchinson_PRECISION( level_struct *l, struct Thread *threading , com
     
     //-----------------------COMPUTING THE BLOCK TRACE SAMPLE------------------------- 
     for(j=0; j<block_size; j++){  
-      solve_PRECISION( solution, X[j], l, threading, 0.0 ); //get A⁻¹x 
+      solve_PRECISION( solution, X[j], l, threading); //get A⁻¹x 
       for (i=0; i< block_size; i++){
         complex_PRECISION tmpx = global_inner_product_PRECISION( X[i], solution, p->v_start, p->v_end, l, threading ); //compute x'A⁻¹x     
         START_MASTER(threading)
         sample[j+i*block_size+ k*block_size*block_size ] = tmpx;
         estimate[j+i*block_size] += sample[j+i*block_size+ k*block_size*block_size ];   
-                               
+
         for (v=0; v<k; v++)  //compute the variance for the (i,j) element in the BT     
           variance[j+i*block_size] += (  sample[j+i*block_size+ v*block_size*block_size ]- estimate[j+i*block_size]/(k+1)  )*conj(  sample[j+i*block_size+ v*block_size*block_size ]- estimate[j+i*block_size]/(k+1) ); 
         variance[j+i*block_size] /= (v+1);  
@@ -173,8 +172,8 @@ void block_hutchinson_PRECISION( level_struct *l, struct Thread *threading , com
     /*START_MASTER(threading) 
     if(g.my_rank==0)
     printf( "%d \t RMSD  %f < %f ??\t first entry %f \t rough_trace %f\n", k, RMSD, cabs(rough_trace)*trace_tol, creal(estimate[0])/(k+1), creal(rough_trace)  );
-    END_MASTER(threading)
-    SYNC_MASTER_TO_ALL(threading)*/
+    END_MASTER(threading)*/
+    SYNC_MASTER_TO_ALL(threading)
     
     l->h_PRECISION.total_variance=0.0;  //Reset Total Variation
   } //LOOP Hutchinson
@@ -184,9 +183,13 @@ void block_hutchinson_PRECISION( level_struct *l, struct Thread *threading , com
   for (i=0; i< block_size*block_size; i++)  {estimate[i] /=(counter+1); } //Average each estimate    
   for (i=0; i< block_size*block_size; i+=block_size+1){  trace += estimate[i];} //Compute trace 
   l->h_PRECISION.trace=trace;
+  
+  //---------------------------------------------------------------------------- 
+
+  if(g.my_rank==0)printf( "Trace: %f + i%f \t using %d estimates \n ", CSPLIT(l->h_PRECISION.trace), counter+1  );
   END_MASTER(threading)
   SYNC_MASTER_TO_ALL(threading)
-  //---------------------------------------------------------------------------- 
+
 }
 
 
@@ -197,7 +200,7 @@ void block_hutchinson_driver_PRECISION( level_struct *l, struct Thread *threadin
   END_MASTER(threading)
  //----------------------------INITIALIZE VARIABLES---------------------------------------------------- 
   complex_PRECISION estimate[l->h_PRECISION.block_size*l->h_PRECISION.block_size] ;
-  complex_PRECISION variance[l->h_PRECISION.block_size*l->h_PRECISION.block_size] ; 
+  PRECISION variance[l->h_PRECISION.block_size*l->h_PRECISION.block_size] ; 
   memset(estimate, 0, sizeof(estimate));
   memset(variance, 0, sizeof(variance));
 
@@ -216,7 +219,7 @@ void block_hutchinson_driver_PRECISION( level_struct *l, struct Thread *threadin
   block_hutchinson_PRECISION(l, threading, estimate, variance);
 
   START_MASTER(threading)
-  if(g.my_rank==0)printf("\t------------- done--------------------\n");
+  if(g.my_rank==0)printf("\t------------- DONE--------------------\n\n");
   END_MASTER(threading)
 
   START_MASTER(threading)
@@ -233,17 +236,14 @@ void block_hutchinson_driver_PRECISION( level_struct *l, struct Thread *threadin
   memset(estimate, 0, sizeof(estimate));
   memset(variance, 0, sizeof(variance));
 
-  l->h_PRECISION.max_iters=10;
+  l->h_PRECISION.max_iters=1000;
   block_hutchinson_PRECISION(l, threading, estimate, variance);
   
   START_MASTER(threading)
-  if(g.my_rank==0)printf("\t------------------DONE----------------\n");
+  if(g.my_rank==0)printf("\t------------------DONE----------------\n\n");
   END_MASTER(threading)
 
-  START_MASTER(threading)
-  if(g.my_rank==0)printf( "Finally, Trace: %f + i%f \n ", CSPLIT(l->h_PRECISION.trace)  );
-  END_MASTER(threading)
-  SYNC_MASTER_TO_ALL(threading)
+  
 
 //------------------------SAVE BLOCK TRACE INTO A FILE-----------------------------------
  START_MASTER(threading)
@@ -391,7 +391,7 @@ void hutchinson_diver_PRECISION_free( level_struct *l, struct Thread *threading 
 
   FREE( h->sample, complex_PRECISION, h->block_size*h->block_size*h->max_iters);
 
-  //FREE( h->X_float[0], complex_float, h->block_size* l->inner_vector_size);//for mlmc  
+  FREE( h->X_float[0], complex_float, h->block_size* l->inner_vector_size);//for mlmc  
   FREE( h->X_float, vector_float, h->block_size );//for mlmc
 
 
@@ -438,20 +438,20 @@ complex_PRECISION mlmc_hutchinson_diver_PRECISION( level_struct *l, struct Threa
   level_struct *lx = l->next_level;
   double buff_tol[g.num_levels];
   buff_tol[0] =  ps_double[i]->tol; 
-  START_MASTER(threading)
+ /* START_MASTER(threading)
   if(g.my_rank==0) printf("LEVEL----------- \t %d  \t vector size: %d \t TOLERANCE: %e\n", 0, ls[0]->inner_vector_size, buff_tol[0]);
-  END_MASTER(threading)
-  SYNC_MASTER_TO_ALL(threading)
+  END_MASTER(threading)*/
+
   for( i=1;i<g.num_levels;i++ ){
+    SYNC_MASTER_TO_ALL(threading)
     ps[i] = &(lx->p_float); // p_PRECISION in each level
     ls[i] = lx;                  // level_struct of each level
     lx = lx->next_level;
     buff_tol[i]= ps[i]->tol;
-    SYNC_MASTER_TO_ALL(threading)
+
     START_MASTER(threading)
-    if(g.my_rank==0) printf("LEVEL----------- \t %d  \t vector size: %d \tTOLERANCE: %f\n ", i, ls[i]->inner_vector_size, buff_tol[i]);
-    END_MASTER(threading)
-          
+    //if(g.my_rank==0) printf("LEVEL----------- \t %d  \t vector size: %d \tTOLERANCE: %f\n ", i, ls[i]->inner_vector_size, buff_tol[i]);
+    END_MASTER(threading)         
   }
     
   complex_PRECISION es[g.num_levels];  //An estimate per level
@@ -467,7 +467,7 @@ complex_PRECISION mlmc_hutchinson_diver_PRECISION( level_struct *l, struct Threa
     compute_core_start_end( 0, ls[li]->inner_vector_size, &start, &end, l, threading );
     
     START_MASTER(threading)
-    if(g.my_rank==0) printf("LEVEL----------- \t %d  \t ests: %d  \t start: %d  \t end: %d \t vector size: %d \n ", li, nr_ests[li], start, ps_double[li]->v_end, ls[li]->inner_vector_size);
+   // if(g.my_rank==0) printf("LEVEL----------- \t %d  \t ests: %d  \t start: %d  \t end: %d \t vector size: %d \n ", li, nr_ests[li], start, ps_double[li]->v_end, ls[li]->inner_vector_size);
     END_MASTER(threading)
     
     for(i=0;i<nr_ests[li]  ; i++){
@@ -476,7 +476,7 @@ complex_PRECISION mlmc_hutchinson_diver_PRECISION( level_struct *l, struct Threa
         vector_double_define_random_rademacher( ps_double[li]->b, 0, ls[li]->inner_vector_size, ls[li] );          
       }
       else
-        vector_float_define_random_rademacher( ps[li]->b, 0, ls[li]->inner_vector_size, ls[li] );    
+      vector_float_define_random_rademacher( ps[li]->b, 0, ls[li]->inner_vector_size, ls[li] );    
       END_MASTER(threading)
       SYNC_MASTER_TO_ALL(threading)
       //-----------------Solve the system in current level and the next one----------------- 
@@ -521,11 +521,11 @@ complex_PRECISION mlmc_hutchinson_diver_PRECISION( level_struct *l, struct Threa
       variance /= (j+1);
       RMSD = sqrt(variance/(j+1)); //RMSD= sqrt(var+ bias²)
      
-      START_MASTER(threading)
+     /* START_MASTER(threading)
       if(g.my_rank==0)
       printf( "%d \t var %f \t Est %f  \t RMSD %f <  %f ?? \n ", i, variance, creal( es[li]/(i+1) ), RMSD,  cabs(rough_trace)*tol[li]*est_tol );
-      END_MASTER(threading)
-           
+      END_MASTER(threading)*/
+      SYNC_MASTER_TO_ALL(threading)     
       counter[li]=i+1;
       if(i !=0 && RMSD< cabs(rough_trace)*tol[li]*est_tol && i>=l->h_PRECISION.min_iters-1){counter[li]=i+1; break;}
       //----------------------------------------------------------------------------------------------    
@@ -537,9 +537,9 @@ complex_PRECISION mlmc_hutchinson_diver_PRECISION( level_struct *l, struct Threa
 //-----------------Hutchinson for just coarsest level-----------------       
   li = g.num_levels-1;
   
-  START_MASTER(threading)
+ /* START_MASTER(threading)
   if(g.my_rank==0)printf("LEVEL----------- \t %d  \t ests: %d  \t start: %d  \t end: %d \t vector size: %d \n ", li, nr_ests[li], start, ps[li]->v_end, ls[li]->inner_vector_size);
-  END_MASTER(threading)
+  END_MASTER(threading)*/
   
   complex_PRECISION sample[nr_ests[li]]; 
   variance = 0.0;
@@ -562,11 +562,11 @@ complex_PRECISION mlmc_hutchinson_diver_PRECISION( level_struct *l, struct Threa
     variance /= (j+1);
     RMSD = sqrt(variance/(j+1)); //RMSD= sqrt(var+ bias²)
         
-    START_MASTER(threading)
+    /*START_MASTER(threading)
     if(g.my_rank==0)
       printf( "%d \t var %f \t Est %f  \t RMSD %f <  %f ?? \n ", i, variance, creal( es[li]/(i+1) ), RMSD,  cabs(rough_trace)*tol[li]*est_tol );
-    END_MASTER(threading)
-    
+    END_MASTER(threading)*/
+    SYNC_MASTER_TO_ALL(threading)
     counter[li]=i+1;
     if(i !=0 && RMSD< cabs(rough_trace)*tol[li]*est_tol && i>=l->h_PRECISION.min_iters-1 ){counter[li]=i+1; break;}
   }
@@ -576,54 +576,20 @@ complex_PRECISION mlmc_hutchinson_diver_PRECISION( level_struct *l, struct Threa
   for( i=0;i<g.num_levels;i++ ){
     trace += es[i]/counter[i];    
   START_MASTER(threading)
-  if(g.my_rank==0)printf("Level:%d, ................................%f    %d\n", i, creal(es[i]),counter[i]);
+  //if(g.my_rank==0)printf("Level:%d, ................................%f    %d\n", i, creal(es[i]),counter[i]);
   END_MASTER(threading)  
 
   }
   
   START_MASTER(threading)
   if(g.my_rank==0)
-    printf( "\n\n\n\n %f+i %f \n", CSPLIT( trace ));
+    printf( "\n\n Trace: %f+i %f, \t ests in l_0: %d, \t ests in l_1: %d \n", CSPLIT( trace ), counter[0],counter[1]);
   END_MASTER(threading)
   
   
   return trace;
   
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 
@@ -697,9 +663,9 @@ complex_PRECISION mlmc_block_hutchinson_diver_PRECISION( level_struct *l, struct
     counter[li]=0;       l->h_PRECISION.total_variance=0.0;
     compute_core_start_end( 0, ls[li]->inner_vector_size, &start, &end, l, threading );
     
-    START_MASTER(threading)
+   /* START_MASTER(threading)
     if(g.my_rank==0) printf("LEVEL----------- \t %d  \t ests: %d  \t start: %d  \t end: %d \t vector size: %d \n \n", li, nr_ests[li], start, ps_double[li]->v_end, ls[li]->inner_vector_size);
-    END_MASTER(threading)
+    END_MASTER(threading)*/
     
     for(i=0;i<nr_ests[li] ; i++){
       START_MASTER(threading) //Get random vector:
@@ -794,10 +760,10 @@ complex_PRECISION mlmc_block_hutchinson_diver_PRECISION( level_struct *l, struct
     PRECISION RMSD = sqrt(l->h_PRECISION.total_variance)/(i+1);
     counter[li]=i+1;
    
-   START_MASTER(threading) 
+  /* START_MASTER(threading) 
    if(g.my_rank==0)
    printf( "%d \t First var %f \t First Est %f  \t RMSD %f <  %f ?? \n ", i, creal(variance[li][0]), creal( es[li][0]/(i+1) ), RMSD,  cabs(rough_trace)*tol[li]*est_tol );
-   END_MASTER(threading)
+   END_MASTER(threading)*/
    SYNC_MASTER_TO_ALL(threading)
    
     if(i !=0 && RMSD< cabs(rough_trace)*tol[li]*est_tol && i>=l->h_PRECISION.min_iters-1){counter[li]=i+1; break;}
@@ -811,10 +777,10 @@ complex_PRECISION mlmc_block_hutchinson_diver_PRECISION( level_struct *l, struct
 //-----------------Hutchinson for just coarsest level-----------------       
   li = g.num_levels-1; 
   counter[li]=0; l->h_PRECISION.total_variance=0.0;
-  START_MASTER(threading)
+  /*START_MASTER(threading)
   if(g.my_rank==0)printf("LEVEL----------- \t %d  \t ests: %d  \t start: %d  \t end: %d \t vector size: %d \n\n ", li, nr_ests[li], start, ps[li]->v_end, ls[li]->inner_vector_size);
-  END_MASTER(threading)
-  SYNC_MASTER_TO_ALL(threading)
+  END_MASTER(threading)*/
+
   
   for(i=0;i<nr_ests[li]  ; i++){
     START_MASTER(threading)
@@ -844,8 +810,8 @@ complex_PRECISION mlmc_block_hutchinson_diver_PRECISION( level_struct *l, struct
 
         END_MASTER(threading)      
         SYNC_MASTER_TO_ALL(threading)  
-      }//loop for row
-    }//loop for col
+      }
+    }
        
     //--------------Get the TOTAL VARIATION in the current level and use it in stop criteria---------------                                
     START_MASTER(threading) 
@@ -902,7 +868,7 @@ complex_PRECISION mlmc_block_hutchinson_diver_PRECISION( level_struct *l, struct
     
   START_MASTER(threading)
   if(g.my_rank==0)
-    printf( "\n\n\n\n %f+i %f \n", CSPLIT( trace ));
+    printf( "\n\n Trace: %f+i %f, \t ests in l_0: %d, \t ests in l_1: %d \n", CSPLIT( trace ), counter[0],counter[1]);
   END_MASTER(threading)
 
   
