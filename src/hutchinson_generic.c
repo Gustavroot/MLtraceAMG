@@ -148,20 +148,14 @@ void block_hutchinson_PRECISION( level_struct *l, struct Thread *threading , com
       solve_PRECISION( solution, X[j], l, threading); //get A⁻¹x 
       for (i=0; i< block_size; i++){
         if(i==j){
-		      complex_PRECISION tmpx = global_inner_product_PRECISION( X[i], solution, p->v_start, p->v_end, l, threading ); //compute x'A⁻¹x     
-		      START_MASTER(threading)
-		      sample[j+i*block_size+ k*block_size*block_size ] = tmpx;
-		      estimate[j+i*block_size] += sample[j+i*block_size+ k*block_size*block_size ];   
-		      
-		      /*variance[j+i*block_size]=0.0;
-		      for (v=0; v<k; v++)  //compute the variance for the (i,j) element in the BT     
-		        variance[j+i*block_size] += (  sample[j+i*block_size+ v*block_size*block_size ]- estimate[j+i*block_size]/(k+1) )*
-		                                conj(  sample[j+i*block_size+ v*block_size*block_size ]- estimate[j+i*block_size]/(k+1) ); 
-		      variance[j+i*block_size] /= (v+1);  
-		      */             
-		      END_MASTER(threading)      
-		      SYNC_MASTER_TO_ALL(threading)
-		    }
+          complex_PRECISION tmpx = global_inner_product_PRECISION( X[i], solution, p->v_start, p->v_end, l, threading ); //compute x'A⁻¹x     
+          START_MASTER(threading)
+          sample[j+i*block_size+ k*block_size*block_size ] = tmpx;
+          estimate[j+i*block_size] += sample[j+i*block_size+ k*block_size*block_size ];   
+          
+          END_MASTER(threading)      
+          SYNC_MASTER_TO_ALL(threading)
+        }
       }          
     }   
     //----------------------------------------------------------------------------    
@@ -172,19 +166,44 @@ void block_hutchinson_PRECISION( level_struct *l, struct Thread *threading , com
     START_MASTER(threading)
     l->h_PRECISION.total_variance=0.0;
     memset(cov, 0.0, sizeof(cov));
-    for ( i=0; i< block_size*block_size; i+=block_size-1){ //over the diagonal, block_size elements  
-      for ( j=0; j< block_size; j++){
+    int counter=0;
+    for ( i=0; i< block_size*block_size; i+=block_size+1){ //over the diagonal, block_size elements  of BT 
+      for ( j=0; j< block_size*block_size; j+=block_size+1){
         for (v=0; v<k; v++)
-         cov[i/block_size] += (sample[i+ v*block_size*block_size ] - estimate[i]/(k+1) )*
-                                        conj(sample[j*block_size+ v*block_size*block_size ] - estimate[j*block_size]/(k+1) ); 
+         cov[counter] += (sample[i+ v*block_size*block_size ] - estimate[i]/(k+1) )*
+                               conj( sample[j+ v*block_size*block_size ] - estimate[j]/(k+1) ); 
+                                        //conj(sample[j*block_size+ v*block_size*block_size ] - estimate[j*block_size]/(k+1) ); 
     
-         cov[i/block_size] /= (v+1);        
-         l->h_PRECISION.total_variance+= cov[i/block_size];
-       // if(g.my_rank==0)printf("%d \t %d \t %d \t %f +i %f\n", k, i, j, CSPLIT(l->h_PRECISION.total_variance) ); 
+         cov[counter] /= (v+1);
+
+         //l->h_PRECISION.total_variance += cov[i/block_size];
+        //if(g.my_rank==0)printf("%d \t %d \t %f +i %f\n", k, counter,  CSPLIT(cov[counter]) ); 
+        //if(g.my_rank==0)printf("Cov[ %d, %d] \t %f +i %f\n", i,j,  CSPLIT(cov[counter]) ); 
+        counter++;        
       }
     }
+    
+    //-----------------Covariance for diag(gamma_5*BT)
+    for(i=0; i< block_size; i++){
+      for (j=0; j<block_size; j++){
+        if(i<block_size/2 && j< block_size/2 || i>block_size/2 && j> block_size/2 ){
+          l->h_PRECISION.total_variance += cov[i/block_size];
+          //if(g.my_rank==0)printf("%d \t %d \t \t PLUS \n",  i, j );
+        }
+        else{
+          l->h_PRECISION.total_variance -= cov[i/block_size];
+          //if(g.my_rank==0)printf("%d \t %d \t \t minus \n",  i, j );
+        }
+      }
+    }
+    
+    
     END_MASTER(threading)      
     SYNC_MASTER_TO_ALL(threading)
+    
+    
+    
+    
     
     
     
@@ -251,6 +270,8 @@ void block_hutchinson_driver_PRECISION( level_struct *l, struct Thread *threadin
   memset(estimate, 0.0, sizeof(estimate));
   memset(variance, 0.0, sizeof(variance));
   memset(cov, 0.0, sizeof(cov));
+  
+  int block_size= l->h_PRECISION.block_size;
 
   l->h_PRECISION.trace=0.0; l->h_PRECISION.rough_trace=0.0;
   l->h_PRECISION.total_variance=0.0; 
@@ -287,7 +308,7 @@ void block_hutchinson_driver_PRECISION( level_struct *l, struct Thread *threadin
   memset(estimate, 0.0, sizeof(estimate));
   memset(variance, 0.0, sizeof(variance)); memset(cov,0.0, sizeof(cov));
   
-  l->h_PRECISION.max_iters=1000;
+  l->h_PRECISION.max_iters=10000;
   block_hutchinson_PRECISION(l, threading, estimate, variance, cov);
   
   START_MASTER(threading)
@@ -298,7 +319,7 @@ void block_hutchinson_driver_PRECISION( level_struct *l, struct Thread *threadin
 
   
   
-/*
+
 //------------------------SAVE BLOCK TRACE INTO A FILE-----------------------------------
   START_MASTER(threading)
   int j;    
@@ -310,7 +331,7 @@ void block_hutchinson_driver_PRECISION( level_struct *l, struct Thread *threadin
     FILE * fp;  
     fp = fopen (fileSpec, "w+");
     
-    sprintf(a, "%s%d%s", "BLOCK_Var",g.my_rank, ".txt");
+    sprintf(a, "%s%d%s", "Covar",g.my_rank, ".txt");
     char fileSpec_var[strlen(a)+1];
     snprintf( fileSpec_var, sizeof( fileSpec_var ), "%s", a );  
     FILE * fvar;  
@@ -318,10 +339,10 @@ void block_hutchinson_driver_PRECISION( level_struct *l, struct Thread *threadin
     
     for (i=0; i< l->h_PRECISION.block_size; i++){
       for(j=0; j<l->h_PRECISION.block_size; j++){
-        //fprintf(fp, "%f\t", creal(estimate[i*l->h_PRECISION.block_size+j]));
-        //fprintf(fvar, "%f\t", creal(variance[i*l->h_PRECISION.block_size+j]));
-        fprintf(fp, "%f\t", creal(vec_BT[i*block_size+j]));
-        fprintf(fvar, "%f\t", creal(variance[i*block_size+j]));
+        fprintf(fp, "%f\t", creal( estimate[i*block_size+j] ) );
+        fprintf(fvar, "%f\t",  creal(   cov[i*block_size+j] ) );
+        //fprintf(fp, "%f\t", creal(vec_BT[i*block_size+j]));
+        //fprintf(fvar, "%f\t", creal(variance[i*block_size+j]));
        }
       fprintf(fp, "\n");
       fprintf(fvar, "\n");
@@ -332,7 +353,7 @@ void block_hutchinson_driver_PRECISION( level_struct *l, struct Thread *threadin
   
   END_MASTER(threading)
   SYNC_MASTER_TO_ALL(threading) 
-  */
+  
 }
 
 
@@ -785,25 +806,27 @@ complex_PRECISION mlmc_block_hutchinson_diver_PRECISION( level_struct *l, struct
         vector_float_minus( h->mlmc_b1_float, ps[li]->x, h->mlmc_b1_float, start, end, ls[li] );
       }
       //--------------Get the samples--------------  
-      for(row=0; row<block_size; row++){                         
-        if(li==0){     
-          tmpx = global_inner_product_PRECISION( X[row], h->mlmc_b1, ps_double[li]->v_start, ps_double[li]->v_end, ls[li], threading );      
-        }
-        else{
-          tmpx =  global_inner_product_float(X_float[row], h->mlmc_b1_float, ps[li]->v_start, ps[li]->v_end, ls[li], threading );      
-        }
-
-        START_MASTER(threading)
-        sample[col+row*block_size+ i*block_size*block_size ] = tmpx;
-        es[li][col+row*block_size] += tmpx;
+      for(row=0; row<block_size; row++){       
+        if(row==col){                  
+          if(li==0){     
+            tmpx = global_inner_product_PRECISION( X[row], h->mlmc_b1, ps_double[li]->v_start, ps_double[li]->v_end, ls[li], threading );      
+          }
+          else{
+            tmpx =  global_inner_product_float(X_float[row], h->mlmc_b1_float, ps[li]->v_start, ps[li]->v_end, ls[li], threading );      
+          }
         
-        for (v=0; v<i; v++)  //compute the variance for the (i,j) element in the BT     
-          variance[li][col+row*block_size] += (  sample[col+row*block_size+ v*block_size*block_size ]- es[li][col+row*block_size]/(i+1)  )*conj(  sample[col+row*block_size+ v*block_size*block_size ]- es[li][col+row*block_size]/(i+1) ); 
-        
-        variance[li][col+row*block_size] /= (v+1);
-        
-        END_MASTER(threading)      
-        SYNC_MASTER_TO_ALL(threading)     
+          START_MASTER(threading)
+          sample[col+row*block_size+ i*block_size*block_size ] = tmpx;
+          es[li][col+row*block_size] += tmpx;
+          
+          for (v=0; v<i; v++)  //compute the variance for the (i,j) element in the BT     
+            variance[li][col+row*block_size] += (  sample[col+row*block_size+ v*block_size*block_size ]- es[li][col+row*block_size]/(i+1)  )*conj(  sample[col+row*block_size+ v*block_size*block_size ]- es[li][col+row*block_size]/(i+1) ); 
+          
+          variance[li][col+row*block_size] /= (v+1);
+          
+          END_MASTER(threading)      
+          SYNC_MASTER_TO_ALL(threading)
+        }//if statement     
       }//loop for row 
  
     }//loop for col    
@@ -853,20 +876,22 @@ complex_PRECISION mlmc_block_hutchinson_diver_PRECISION( level_struct *l, struct
       vector_float_copy( ps[li]->b, X_float[col], ps[li]->v_start, ps[li]->v_end, ls[li] );
       fgmres_float( ps[li], ls[li], threading );
       ps[li]->tol = buff_tol[li];
-      for(row=0; row<block_size; row++){                         
-        tmpx= global_inner_product_float( X_float[row], ps[li]->x, ps[li]->v_start, ps[li]->v_end, ls[li], threading );   
+      for(row=0; row<block_size; row++){ 
+        if(row==col){                        
+          tmpx= global_inner_product_float( X_float[row], ps[li]->x, ps[li]->v_start, ps[li]->v_end, ls[li], threading );   
+          
+          START_MASTER(threading)
+          sample[col+row*block_size+ i*block_size*block_size ] = tmpx;
+          es[li][col+row*block_size] += tmpx;
         
-        START_MASTER(threading)
-        sample[col+row*block_size+ i*block_size*block_size ] = tmpx;
-        es[li][col+row*block_size] += tmpx;
-
-        for (v=0; v<i; v++)  //compute the variance for the (i,j) element in the BT     
-          variance[li][col+row*block_size] += (  sample[col+row*block_size+ v*block_size*block_size ]- es[li][col+row*block_size]/(i+1)  )*conj(  sample[col+row*block_size+ v*block_size*block_size ]- es[li][col+row*block_size]/(i+1) ); 
+          for (v=0; v<i; v++)  //compute the variance for the (i,j) element in the BT     
+            variance[li][col+row*block_size] += (  sample[col+row*block_size+ v*block_size*block_size ]- es[li][col+row*block_size]/(i+1)  )*conj(  sample[col+row*block_size+ v*block_size*block_size ]- es[li][col+row*block_size]/(i+1) ); 
         
-        variance[li][col+row*block_size] /= (v+1);
+          variance[li][col+row*block_size] /= (v+1);
 
-        END_MASTER(threading)      
-        SYNC_MASTER_TO_ALL(threading)  
+          END_MASTER(threading)      
+          SYNC_MASTER_TO_ALL(threading)
+        }  
       }
     }
        

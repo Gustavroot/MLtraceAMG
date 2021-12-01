@@ -133,7 +133,7 @@ int main( int argc, char **argv ) {
     l.h_double.min_iters = 5;
     l.h_double.trace_tol=1e-5;  
 
-    rtrace = hutchinson_driver_double( &l, &threading );
+    //rtrace = hutchinson_driver_double( &l, &threading );
             
     START_MASTER(threadingx)
     if(g.my_rank==0) printf("\n... done\n\n");
@@ -160,7 +160,7 @@ int main( int argc, char **argv ) {
 
     // ------------TRACE with BLOCK-------------------------------------------
      l.h_double.min_iters = 50;
-     l.h_double.trace_tol = 1e-3;
+     l.h_double.trace_tol = 1e-2;
      block_hutchinson_driver_double( &l, &threading );
         // ---------------------------------------------------------------
 
@@ -188,7 +188,7 @@ int main( int argc, char **argv ) {
     if(g.my_rank==0) printf("Computing trace through BLOCK MLMC Hutchinson ...\n");
     END_MASTER(threadingx)
     
-   // trace = mlmc_block_hutchinson_diver_double( &l, &threading );
+    //trace = mlmc_block_hutchinson_diver_double( &l, &threading );
         
     START_MASTER(threadingx)
     if(g.my_rank==0) printf("\n... done\n\n");
