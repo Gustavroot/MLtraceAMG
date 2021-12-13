@@ -129,11 +129,11 @@ int main( int argc, char **argv ) {
     if(g.my_rank==0) printf("Computing ROUGH trace through PLAIN Hutchinson ...\n");
     END_MASTER(threadingx)
     SYNC_MASTER_TO_ALL(threadingx)
-    l.h_double.max_iters = 5;
-    l.h_double.min_iters = 5;
+    l.h_double.max_iters = 20;
+    l.h_double.min_iters = 20;
     l.h_double.trace_tol=1e-5;  
 
-    //rtrace = hutchinson_driver_double( &l, &threading );
+    rtrace = hutchinson_driver_double( &l, &threading );
             
     START_MASTER(threadingx)
     if(g.my_rank==0) printf("\n... done\n\n");
@@ -148,17 +148,17 @@ int main( int argc, char **argv ) {
      
 
     l.h_double.rt = rtrace;
-    l.h_double.max_iters = 1000;
-    l.h_double.min_iters = 5;
-    l.h_double.trace_tol=1e-3;  
- //  trace = hutchinson_driver_double( &l, &threading );
+    l.h_double.max_iters = 10000;
+    l.h_double.min_iters = 10;
+    l.h_double.trace_tol=1e-5;  
+    trace = hutchinson_driver_double( &l, &threading );
     
     START_MASTER(threadingx)
     if(g.my_rank==0) printf("\n... done\n\n");
     END_MASTER(threadingx)
     // ---------------------------------------------------------------
 
-    // ------------TRACE with BLOCK-------------------------------------------
+ /*   // ------------TRACE with BLOCK-------------------------------------------
      l.h_double.min_iters = 50;
      l.h_double.trace_tol = 1e-2;
      block_hutchinson_driver_double( &l, &threading );
@@ -195,7 +195,7 @@ int main( int argc, char **argv ) {
     END_MASTER(threadingx)
    
     hutchinson_diver_double_free( &l, &threading );
-    
+    */
   }
 
   finalize_common_thread_data(commonthreaddata);

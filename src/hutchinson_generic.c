@@ -102,7 +102,7 @@ complex_PRECISION hutchinson_driver_PRECISION( level_struct *l, struct Thread *t
     RMSD = sqrt(variance/(j+1)); //RMSD= sqrt(var+ bias²)
 
     START_MASTER(threading)
-    //if(g.my_rank==0)  printf( "%d \t var %f \t RMSD %f < %f, \t Trace: %f + i%f \n ", i, variance, RMSD, cabs(rough_trace)*trace_tol, CSPLIT(trace)  );
+    if(g.my_rank==0)  printf( "%d \t var %f \t RMSD %f < %f, \t Trace: %f + i%f \n ", i, variance, RMSD, cabs(rough_trace)*trace_tol, CSPLIT(trace)  );
     END_MASTER(threading)
     SYNC_MASTER_TO_ALL(threading)
     variance=0.0;
